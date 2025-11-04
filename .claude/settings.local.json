@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(npm create:*)",
-      "Bash(npm install)"
+      "Bash(npm install)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout 3 bash:*)"
     ],
     "deny": [],
     "ask": []

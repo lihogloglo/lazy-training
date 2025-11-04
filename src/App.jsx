@@ -37,17 +37,17 @@ import {
   Home,
   CalendarDays,
   Info,
-  FilePenLine,
+  FileEdit,
   Bell
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
-// These global variables are expected to be injected by the environment.
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
-  ? JSON.parse(__firebase_config) 
+// Read from environment variables (Vite automatically exposes VITE_* variables)
+const firebaseConfig = import.meta.env.VITE_FIREBASE_CONFIG
+  ? JSON.parse(import.meta.env.VITE_FIREBASE_CONFIG)
   : { apiKey: "YOUR_FALLBACK_API_KEY", authDomain: "...", projectId: "..." };
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const appId = import.meta.env.VITE_APP_ID || 'lazy-training-app';
 
 // --- Helper Functions ---
 const getTodayDayName = () => {
@@ -61,7 +61,13 @@ const formatTimer = (seconds) => {
 };
 
 // --- System Prompt for AI Plan Generation ---
-const AI_PLAN_SYSTEM_PROMPT = `You are an expert fitness planner. The user will provide a goal. Create a structured JSON training plan. The output *must* be only a single JSON object. Do not include '"""json' or any other text outside the JSON.
+const AI_PLAN_SYSTEM_PROMPT = `You are an expert fitness planner. The user will provide a goal. Create a structured JSON training plan.
+
+CRITICAL: The output *must* be ONLY a single JSON object. No markdown code blocks, no comments, no explanations.
+- Do NOT include \`\`\`json or \`\`\`
+- Do NOT include // comments in the JSON
+- Generate ALL weeks (if 12 weeks, include all 12 week objects)
+- Return ONLY pure JSON
 
 **Use this user context:** 36-year-old male, 76kg, 1m79.
 **Goals:** V10 Moonboard, 8a outdoor climbing, one-arm pull-up, maintain Squat/Bench/Deadlift on Mon/Fri (PRs: 120/90/160kg), and include light cardio.
@@ -706,18 +712,38 @@ const CreatePlanView = ({ db, auth, userId, appId, showDashboard, defaultView = 
     if (!goal) return;
     setIsLoading(true);
     setError(null);
-    
+
     try {
       const jsonResponse = await callGeminiApi(goal, AI_PLAN_SYSTEM_PROMPT);
-      
+
       let parsedPlan;
       try {
-        parsedPlan = JSON.parse(jsonResponse);
+        // Clean up the response: remove markdown code blocks and comments
+        let cleanedResponse = jsonResponse
+          .replace(/```json\s*/g, '')
+          .replace(/```\s*/g, '')
+          .replace(/\/\/.*$/gm, '')  // Remove single-line comments
+          .replace(/\/\*[\s\S]*?\*\//g, '')  // Remove multi-line comments
+          .trim();
+
+        parsedPlan = JSON.parse(cleanedResponse);
+
+        // Validate the plan has required fields
+        if (!parsedPlan.planName || !parsedPlan.weeks || !parsedPlan.durationWeeks) {
+          throw new Error("The AI plan is missing required fields. Please try again.");
+        }
+
+        // Check if all weeks are present (warn but don't fail)
+        if (parsedPlan.weeks.length < parsedPlan.durationWeeks) {
+          console.warn(`Plan says ${parsedPlan.durationWeeks} weeks but only got ${parsedPlan.weeks.length} weeks`);
+          // Update durationWeeks to match actual weeks generated
+          parsedPlan.durationWeeks = parsedPlan.weeks.length;
+        }
       } catch (parseError) {
         console.error("Failed to parse AI response:", jsonResponse);
-        throw new Error("The AI returned an invalid plan format. Please try again.");
+        throw new Error("The AI returned an invalid plan format. Please try again or use Manual Import.");
       }
-      
+
       await savePlanToFirestore(parsedPlan);
       showDashboard();
       
@@ -1193,7 +1219,7 @@ export default function App() {
               onClick={showPlan}
               className={`flex-1 flex flex-col items-center p-3 ${currentView === 'plan' ? 'text-indigo-400' : 'text-gray-500'}`}
             >
-              <FilePenLine size={24} />
+              <FileEdit size={24} />
               <span className="text-xs">Plan</span>
             </button>
             <button
