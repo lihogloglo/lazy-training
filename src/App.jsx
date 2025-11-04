@@ -38,7 +38,11 @@ import {
   CalendarDays,
   Info,
   FileEdit,
-  Bell
+  Bell,
+  Edit3,
+  Save,
+  Trash2,
+  Plus
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -925,7 +929,7 @@ const HistoryView = ({ history, plan }) => {
  * PlanView
  * Displays the current plan and settings.
  */
-const PlanView = ({ plan, showCreatePlan }) => {
+const PlanView = ({ plan, showCreatePlan, showEditPlan }) => {
   
   const handleEnableNotifications = () => {
     // In a real native app, this would trigger the permission prompt
@@ -961,10 +965,11 @@ const PlanView = ({ plan, showCreatePlan }) => {
         <p className="text-2xl text-indigo-300 mb-4">{plan.planName}</p>
         <p className="text-gray-400">{plan.durationWeeks} Week Program</p>
         <button
-          disabled
-          className="w-full text-left mt-4 text-gray-500 text-sm opacity-70"
+          onClick={showEditPlan}
+          className="w-full mt-4 bg-gray-700 text-white py-2 rounded-lg font-semibold flex items-center justify-center gap-2"
         >
-          Edit Plan (Coming Soon)
+          <Edit3 size={18} />
+          Edit Plan
         </button>
       </div>
 
@@ -1002,6 +1007,317 @@ const PlanView = ({ plan, showCreatePlan }) => {
   );
 };
 
+/**
+ * EditPlanView
+ * Allows editing of the current training plan
+ */
+const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
+  const [editedPlan, setEditedPlan] = useState(JSON.parse(JSON.stringify(plan))); // Deep copy
+  const [selectedWeek, setSelectedWeek] = useState(0);
+  const [selectedDay, setSelectedDay] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
+  const [expandedExercise, setExpandedExercise] = useState(null);
+
+  const currentWeek = editedPlan.weeks[selectedWeek];
+  const currentDay = currentWeek?.days[selectedDay];
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const planDocRef = doc(db, 'artifacts', appId, 'users', userId, 'plan', 'mainPlan');
+      await setDoc(planDocRef, {
+        ...editedPlan,
+        createdAt: plan.createdAt // Preserve original creation date
+      });
+      showPlanView();
+    } catch (error) {
+      console.error("Error saving plan:", error);
+      alert("Failed to save plan. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const updateExercise = (exerciseIndex, field, value) => {
+    const newPlan = { ...editedPlan };
+    const exercise = newPlan.weeks[selectedWeek].days[selectedDay].exercises[exerciseIndex];
+
+    if (field === 'name') {
+      exercise.name = value;
+    } else if (field.startsWith('details.')) {
+      const detailField = field.split('.')[1];
+      exercise.details[detailField] = value;
+    }
+
+    setEditedPlan(newPlan);
+  };
+
+  const addExercise = () => {
+    const newPlan = { ...editedPlan };
+    newPlan.weeks[selectedWeek].days[selectedDay].exercises.push({
+      name: "New Exercise",
+      type: "repsSetsWeight",
+      details: { sets: 3, reps: "10", weight: "Bodyweight", rest: 60 }
+    });
+    setEditedPlan(newPlan);
+  };
+
+  const deleteExercise = (exerciseIndex) => {
+    const newPlan = { ...editedPlan };
+    newPlan.weeks[selectedWeek].days[selectedDay].exercises.splice(exerciseIndex, 1);
+    setEditedPlan(newPlan);
+    setExpandedExercise(null);
+  };
+
+  const changeDayFocus = (value) => {
+    const newPlan = { ...editedPlan };
+    newPlan.weeks[selectedWeek].days[selectedDay].focus = value;
+    setEditedPlan(newPlan);
+  };
+
+  const changeExerciseType = (exerciseIndex, newType) => {
+    const newPlan = { ...editedPlan };
+    const exercise = newPlan.weeks[selectedWeek].days[selectedDay].exercises[exerciseIndex];
+    exercise.type = newType;
+
+    // Set default details based on type
+    if (newType === 'timer') {
+      exercise.details = { sets: 1, duration: 600, rest: 0, description: "Exercise description" };
+    } else {
+      exercise.details = { sets: 3, reps: "10", weight: "Bodyweight", rest: 60 };
+    }
+
+    setEditedPlan(newPlan);
+  };
+
+  return (
+    <div className="p-4 pt-12 min-h-full pb-20">
+      <div className="flex items-center justify-between mb-6">
+        <button onClick={showPlanView} className="text-gray-400 flex items-center gap-2">
+          <ChevronLeft size={24} />
+          Back
+        </button>
+        <h2 className="text-2xl font-bold">Edit Plan</h2>
+        <button
+          onClick={handleSave}
+          disabled={isSaving}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 disabled:opacity-50"
+        >
+          <Save size={20} />
+          {isSaving ? "Saving..." : "Save"}
+        </button>
+      </div>
+
+      {/* Plan Name */}
+      <div className="bg-gray-800 rounded-lg p-4 mb-4">
+        <label className="text-sm text-gray-400 mb-1 block">Plan Name</label>
+        <input
+          type="text"
+          value={editedPlan.planName}
+          onChange={(e) => setEditedPlan({ ...editedPlan, planName: e.target.value })}
+          className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+        />
+      </div>
+
+      {/* Week Selector */}
+      <div className="mb-4">
+        <label className="text-sm text-gray-400 mb-2 block">Week</label>
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {editedPlan.weeks.map((week, idx) => (
+            <button
+              key={idx}
+              onClick={() => { setSelectedWeek(idx); setSelectedDay(0); }}
+              className={`px-4 py-2 rounded-lg font-semibold whitespace-nowrap ${
+                selectedWeek === idx ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300'
+              }`}
+            >
+              Week {week.weekNumber}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Day Selector */}
+      <div className="mb-4">
+        <label className="text-sm text-gray-400 mb-2 block">Day</label>
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {currentWeek?.days.map((day, idx) => (
+            <button
+              key={idx}
+              onClick={() => setSelectedDay(idx)}
+              className={`px-4 py-2 rounded-lg font-semibold whitespace-nowrap ${
+                selectedDay === idx ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300'
+              }`}
+            >
+              {day.day.substring(0, 3)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Day Focus */}
+      <div className="bg-gray-800 rounded-lg p-4 mb-4">
+        <label className="text-sm text-gray-400 mb-1 block">Day Focus</label>
+        <input
+          type="text"
+          value={currentDay?.focus || ''}
+          onChange={(e) => changeDayFocus(e.target.value)}
+          className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+          placeholder="e.g., Strength Training, Rest Day"
+        />
+      </div>
+
+      {/* Exercises List */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">Exercises ({currentDay?.exercises.length || 0})</h3>
+          <button
+            onClick={addExercise}
+            className="bg-green-600 text-white px-3 py-2 rounded-lg font-semibold flex items-center gap-2"
+          >
+            <Plus size={18} />
+            Add Exercise
+          </button>
+        </div>
+
+        {currentDay?.exercises.map((exercise, idx) => (
+          <div key={idx} className="bg-gray-800 rounded-lg p-4 mb-3">
+            <div className="flex items-center justify-between mb-3">
+              <input
+                type="text"
+                value={exercise.name}
+                onChange={(e) => updateExercise(idx, 'name', e.target.value)}
+                className="flex-1 bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none font-semibold"
+              />
+              <button
+                onClick={() => setExpandedExercise(expandedExercise === idx ? null : idx)}
+                className="ml-2 text-indigo-400"
+              >
+                <Edit3 size={20} />
+              </button>
+              <button
+                onClick={() => deleteExercise(idx)}
+                className="ml-2 text-red-400"
+              >
+                <Trash2 size={20} />
+              </button>
+            </div>
+
+            {expandedExercise === idx && (
+              <div className="space-y-3 border-t border-gray-700 pt-3">
+                {/* Exercise Type */}
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Exercise Type</label>
+                  <select
+                    value={exercise.type}
+                    onChange={(e) => changeExerciseType(idx, e.target.value)}
+                    className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value="repsSetsWeight">Reps/Sets/Weight</option>
+                    <option value="timer">Timer</option>
+                  </select>
+                </div>
+
+                {exercise.type === 'repsSetsWeight' ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Sets</label>
+                        <input
+                          type="number"
+                          value={exercise.details.sets}
+                          onChange={(e) => updateExercise(idx, 'details.sets', parseInt(e.target.value))}
+                          className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Reps</label>
+                        <input
+                          type="text"
+                          value={exercise.details.reps}
+                          onChange={(e) => updateExercise(idx, 'details.reps', e.target.value)}
+                          className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">Weight</label>
+                      <input
+                        type="text"
+                        value={exercise.details.weight}
+                        onChange={(e) => updateExercise(idx, 'details.weight', e.target.value)}
+                        className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                        placeholder="e.g., 80kg, Bodyweight, 70% 1RM"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">Rest (seconds)</label>
+                      <input
+                        type="number"
+                        value={exercise.details.rest}
+                        onChange={(e) => updateExercise(idx, 'details.rest', parseInt(e.target.value))}
+                        className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Sets</label>
+                        <input
+                          type="number"
+                          value={exercise.details.sets}
+                          onChange={(e) => updateExercise(idx, 'details.sets', parseInt(e.target.value))}
+                          className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Duration (sec)</label>
+                        <input
+                          type="number"
+                          value={exercise.details.duration}
+                          onChange={(e) => updateExercise(idx, 'details.duration', parseInt(e.target.value))}
+                          className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">Rest (seconds)</label>
+                      <input
+                        type="number"
+                        value={exercise.details.rest}
+                        onChange={(e) => updateExercise(idx, 'details.rest', parseInt(e.target.value))}
+                        className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">Description</label>
+                      <textarea
+                        value={exercise.details.description || ''}
+                        onChange={(e) => updateExercise(idx, 'details.description', e.target.value)}
+                        className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                        rows="2"
+                        placeholder="Exercise description or instructions"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {(!currentDay?.exercises || currentDay.exercises.length === 0) && (
+          <div className="text-center text-gray-400 py-8">
+            <p>No exercises yet. Click "Add Exercise" to get started!</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 
 /**
  * Main App Component
@@ -1015,7 +1331,7 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
 
   // App state
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'createPlan', 'activeWorkout', 'history', 'plan'
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'createPlan', 'activeWorkout', 'history', 'plan', 'editPlan'
   const [plan, setPlan] = useState(null);
   const [history, setHistory] = useState([]);
   const [isLoadingPlan, setIsLoadingPlan] = useState(true);
@@ -1134,6 +1450,10 @@ export default function App() {
     setCurrentView('plan');
   };
 
+  const showEditPlan = () => {
+    setCurrentView('editPlan');
+  };
+
   const startWorkout = (dayData) => {
     setActiveWorkoutDay(dayData);
     setCurrentView('activeWorkout');
@@ -1177,9 +1497,18 @@ export default function App() {
                   plan={plan} 
                 />;
       case 'plan':
-        return <PlanView 
-                  plan={plan} 
-                  showCreatePlan={showCreatePlan} 
+        return <PlanView
+                  plan={plan}
+                  showCreatePlan={showCreatePlan}
+                  showEditPlan={showEditPlan}
+                />;
+      case 'editPlan':
+        return <EditPlanView
+                  db={db}
+                  userId={userId}
+                  appId={appId}
+                  plan={plan}
+                  showPlanView={showPlan}
                 />;
       case 'dashboard':
       default:
