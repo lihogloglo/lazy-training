@@ -1,7 +1,3 @@
-// ---
-// IMPORTANT: Rename this file to 'src/App.jsx' when building locally
-// ---
-// import './index.css'; // <-- Add this line back when you build your project locally
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -114,7 +110,7 @@ The JSON structure must be:
 
 // --- Global API Helper ---
 const callGeminiApi = async (userQuery, systemPrompt) => {
-  const apiKey = ""; // Leave as-is, handled by environment
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
   const payload = {
