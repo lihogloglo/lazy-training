@@ -1,33 +1,33 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  signInWithCustomToken, 
-  onAuthStateChanged 
+import {
+  getAuth,
+  signInAnonymously,
+  signInWithCustomToken,
+  onAuthStateChanged
 } from 'firebase/auth';
-import { 
-  getFirestore, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  onSnapshot, 
-  collection, 
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  collection,
   addDoc,
   query,
   serverTimestamp,
   Timestamp
 } from 'firebase/firestore';
-import { 
-  Brain, 
-  Dumbbell, 
-  CheckCircle, 
-  ArrowRight, 
-  ArrowLeft, 
-  History, 
-  Play, 
-  Pause, 
-  RotateCw, 
+import {
+  Brain,
+  Dumbbell,
+  CheckCircle,
+  ArrowRight,
+  ArrowLeft,
+  History,
+  Play,
+  Pause,
+  RotateCw,
   ChevronLeft,
   X,
   FileText,
@@ -42,11 +42,15 @@ import {
   Edit3,
   Save,
   Trash2,
-  Plus
+  Plus,
+  Download,
+  Upload,
+  Sparkles,
+  Sliders,
+  TrendingUp
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
-// Read from environment variables (Vite automatically exposes VITE_* variables)
 const firebaseConfig = import.meta.env.VITE_FIREBASE_CONFIG
   ? JSON.parse(import.meta.env.VITE_FIREBASE_CONFIG)
   : { apiKey: "YOUR_FALLBACK_API_KEY", authDomain: "...", projectId: "..." };
@@ -64,59 +68,696 @@ const formatTimer = (seconds) => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
-// --- System Prompt for AI Plan Generation ---
-const AI_PLAN_SYSTEM_PROMPT = `You are an expert fitness planner. The user will provide their background, sport/activity, and goals. Create a structured JSON training plan tailored to their needs.
+// --- Progressive Overload Calculation Engine ---
+
+/**
+ * Calculates the progressive value for a given exercise detail based on week number
+ * @param {number} baseValue - The baseline value from week 1
+ * @param {number} weekNumber - Current week number (1-indexed)
+ * @param {number} increment - Amount to add per week
+ * @param {number} userMultiplier - User adjustment multiplier (0.5-2.0)
+ * @param {string} strategy - "linear" or "percentage"
+ * @param {number} adaptiveFactor - Adaptive adjustment factor (0.8-1.2)
+ * @returns {number} The calculated value for the current week
+ */
+const calculateProgressiveValue = (baseValue, weekNumber, increment, userMultiplier = 1.0, strategy = 'linear', adaptiveFactor = 1.0) => {
+  const weeksProgressed = weekNumber - 1; // Week 1 = baseline
+
+  if (strategy === 'percentage') {
+    // Percentage-based: baseValue * (1 + (increment/100))^weeks
+    const percentIncrease = increment / 100;
+    return baseValue * Math.pow(1 + percentIncrease, weeksProgressed * userMultiplier * adaptiveFactor);
+  } else {
+    // Linear: baseValue + (increment * weeks * multiplier * adaptiveFactor)
+    return baseValue + (increment * weeksProgressed * userMultiplier * adaptiveFactor);
+  }
+};
+
+/**
+ * Calculates adaptive factor based on user's recent performance
+ * @param {Array} history - User's workout history
+ * @param {number} currentWeek - Current week number
+ * @returns {number} Adaptive factor (0.8 = slower, 1.0 = normal, 1.2 = faster)
+ */
+const calculateAdaptiveFactor = (history, currentWeek) => {
+  // Look at last 3 weeks of workouts
+  const recentWorkouts = history.filter(log =>
+    log.weekNumber >= currentWeek - 3 && log.weekNumber < currentWeek
+  );
+
+  if (recentWorkouts.length < 3) {
+    return 1.0; // Not enough data, use normal progression
+  }
+
+  // Calculate completion rate (completed workouts per week)
+  const weeksCovered = Math.min(3, currentWeek - 1);
+  const expectedWorkouts = weeksCovered * 4; // Assuming ~4 workouts per week
+  const completionRate = recentWorkouts.length / expectedWorkouts;
+
+  // Adjust based on completion rate
+  if (completionRate >= 0.9) {
+    return 1.1; // User is consistent, slightly increase progression
+  } else if (completionRate >= 0.7) {
+    return 1.0; // Normal progression
+  } else if (completionRate >= 0.5) {
+    return 0.95; // Slightly reduce progression
+  } else {
+    return 0.9; // User is struggling, reduce progression
+  }
+};
+
+/**
+ * Applies progression to exercise details
+ * @param {Object} baselineDetails - Baseline exercise details from week 1
+ * @param {number} currentWeek - Current week number
+ * @param {Object} progressionSettings - Progression settings from plan
+ * @param {number} adaptiveFactor - Adaptive factor based on performance
+ * @returns {Object} Calculated details for current week
+ */
+const applyProgression = (baselineDetails, currentWeek, progressionSettings, adaptiveFactor = 1.0) => {
+  const { strategy, increments, userMultiplier } = progressionSettings;
+  const result = { ...baselineDetails };
+
+  // Apply progression to numeric fields
+  if (typeof baselineDetails.sets === 'number' && increments.sets) {
+    result.sets = Math.round(calculateProgressiveValue(
+      baselineDetails.sets, currentWeek, increments.sets, userMultiplier, strategy, adaptiveFactor
+    ));
+  }
+
+  // Handle reps (can be number or string like "10s")
+  if (baselineDetails.reps) {
+    const repsNum = parseFloat(baselineDetails.reps);
+    if (!isNaN(repsNum) && increments.reps) {
+      const newReps = calculateProgressiveValue(
+        repsNum, currentWeek, increments.reps, userMultiplier, strategy, adaptiveFactor
+      );
+      // Preserve unit if present (e.g., "10s" -> "12s")
+      const unit = String(baselineDetails.reps).replace(/[0-9.-]/g, '');
+      result.reps = Math.round(newReps) + unit;
+    }
+  }
+
+  // Handle weight (parse numeric part)
+  if (baselineDetails.weight && typeof baselineDetails.weight === 'string') {
+    const weightMatch = baselineDetails.weight.match(/([+-]?\d+(?:\.\d+)?)/);
+    if (weightMatch && increments.weight) {
+      const baseWeight = parseFloat(weightMatch[1]);
+      const newWeight = calculateProgressiveValue(
+        baseWeight, currentWeek, increments.weight, userMultiplier, strategy, adaptiveFactor
+      );
+      // Replace numeric part, keep units
+      result.weight = baselineDetails.weight.replace(/([+-]?\d+(?:\.\d+)?)/, newWeight.toFixed(1));
+    }
+  }
+
+  // Handle duration for timer exercises
+  if (typeof baselineDetails.duration === 'number' && increments.duration) {
+    result.duration = Math.round(calculateProgressiveValue(
+      baselineDetails.duration, currentWeek, increments.duration, userMultiplier, strategy, adaptiveFactor
+    ));
+  }
+
+  return result;
+};
+
+// --- Sport Templates ---
+const TEMPLATES = {
+  climbing: [
+    {
+      id: 'climbing-v4-v5',
+      name: 'V4-V5 Bouldering Progression',
+      sport: 'climbing',
+      description: '12-week plan to progress from V4 to V5 bouldering',
+      durationWeeks: 12,
+      baseWeek: {
+        days: [
+          {
+            day: 'Monday',
+            focus: 'Finger Strength',
+            exercises: [
+              { name: 'Warm-up', type: 'timer', baselineDetails: { sets: 1, duration: 600, rest: 0, description: '10-min easy climbing warm-up' } },
+              { name: 'Hangboard - Half Crimp', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '10s', weight: 'Bodyweight', rest: 180 } },
+              { name: 'Hangboard - Open Hand', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '10s', weight: 'Bodyweight', rest: 180 } },
+              { name: 'Campus Board Ladders', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '5', weight: 'Bodyweight', rest: 120 } }
+            ]
+          },
+          {
+            day: 'Tuesday',
+            focus: 'Rest',
+            exercises: []
+          },
+          {
+            day: 'Wednesday',
+            focus: 'Power & Technique',
+            exercises: [
+              { name: 'Warm-up', type: 'timer', baselineDetails: { sets: 1, duration: 900, rest: 0, description: '15-min easy climbing' } },
+              { name: 'Limit Bouldering', type: 'timer', baselineDetails: { sets: 6, duration: 300, rest: 300, description: '5-min hard attempts, 5-min rest' } },
+              { name: 'Volume Climbing', type: 'timer', baselineDetails: { sets: 1, duration: 1800, rest: 0, description: '30-min moderate climbing' } }
+            ]
+          },
+          {
+            day: 'Thursday',
+            focus: 'Antagonist Training',
+            exercises: [
+              { name: 'Push-ups', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '15', weight: 'Bodyweight', rest: 60 } },
+              { name: 'Dips', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '10', weight: 'Bodyweight', rest: 90 } },
+              { name: 'Shoulder Press', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '10', weight: '10kg', rest: 90 } }
+            ]
+          },
+          {
+            day: 'Friday',
+            focus: 'Rest',
+            exercises: []
+          },
+          {
+            day: 'Saturday',
+            focus: 'Endurance & Volume',
+            exercises: [
+              { name: 'Warm-up', type: 'timer', baselineDetails: { sets: 1, duration: 600, rest: 0, description: '10-min easy climbing' } },
+              { name: '4x4 Training', type: 'timer', baselineDetails: { sets: 4, duration: 240, rest: 180, description: '4 problems in 4 minutes, rest 3 min' } },
+              { name: 'Cool-down Volume', type: 'timer', baselineDetails: { sets: 1, duration: 1200, rest: 0, description: '20-min easy climbing' } }
+            ]
+          },
+          {
+            day: 'Sunday',
+            focus: 'Active Recovery',
+            exercises: [
+              { name: 'Yoga or Stretching', type: 'timer', baselineDetails: { sets: 1, duration: 1800, rest: 0, description: '30-min flexibility work' } }
+            ]
+          }
+        ]
+      },
+      progressionSettings: {
+        strategy: 'linear',
+        increments: {
+          sets: 0,
+          reps: 0.5,
+          weight: 1.0,
+          duration: 30
+        },
+        userMultiplier: 1.0,
+        adaptiveEnabled: true
+      }
+    },
+    {
+      id: 'climbing-v6-v7',
+      name: 'V6-V7 Advanced Progression',
+      sport: 'climbing',
+      description: '12-week plan for advanced climbers pushing to V7',
+      durationWeeks: 12,
+      baseWeek: {
+        days: [
+          {
+            day: 'Monday',
+            focus: 'Max Finger Strength',
+            exercises: [
+              { name: 'Warm-up', type: 'timer', baselineDetails: { sets: 1, duration: 900, rest: 0, description: '15-min progressive warm-up' } },
+              { name: 'Weighted Hangboard', type: 'repsSetsWeight', baselineDetails: { sets: 5, reps: '7s', weight: '+10kg', rest: 240 } },
+              { name: 'One-Arm Hangs', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '5s', weight: 'Bodyweight', rest: 180 } },
+              { name: 'Campus Board Max', type: 'repsSetsWeight', baselineDetails: { sets: 5, reps: '3', weight: 'Bodyweight', rest: 180 } }
+            ]
+          },
+          {
+            day: 'Tuesday',
+            focus: 'Core & Tension',
+            exercises: [
+              { name: 'Front Lever Progression', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '5s', weight: 'Bodyweight', rest: 120 } },
+              { name: 'Weighted Leg Raises', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '10', weight: '+5kg', rest: 90 } },
+              { name: 'Plank Variations', type: 'timer', baselineDetails: { sets: 3, duration: 60, rest: 60, description: 'Side planks and regular' } }
+            ]
+          },
+          {
+            day: 'Wednesday',
+            focus: 'Rest',
+            exercises: []
+          },
+          {
+            day: 'Thursday',
+            focus: 'Limit Bouldering',
+            exercises: [
+              { name: 'Warm-up', type: 'timer', baselineDetails: { sets: 1, duration: 1200, rest: 0, description: '20-min progressive warm-up' } },
+              { name: 'Project Attempts', type: 'timer', baselineDetails: { sets: 8, duration: 360, rest: 360, description: '6-min work, 6-min rest on limit problems' } }
+            ]
+          },
+          {
+            day: 'Friday',
+            focus: 'Antagonist & Mobility',
+            exercises: [
+              { name: 'Weighted Push-ups', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '12', weight: '+10kg', rest: 90 } },
+              { name: 'Ring Dips', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '8', weight: 'Bodyweight', rest: 90 } },
+              { name: 'Mobility Work', type: 'timer', baselineDetails: { sets: 1, duration: 1200, rest: 0, description: '20-min stretching' } }
+            ]
+          },
+          {
+            day: 'Saturday',
+            focus: 'Power Endurance',
+            exercises: [
+              { name: 'Warm-up', type: 'timer', baselineDetails: { sets: 1, duration: 900, rest: 0, description: '15-min warm-up' } },
+              { name: 'Linked Boulder Problems', type: 'timer', baselineDetails: { sets: 5, duration: 300, rest: 300, description: 'Link 3-4 problems, 5-min rest' } },
+              { name: 'Volume Climbing', type: 'timer', baselineDetails: { sets: 1, duration: 1200, rest: 0, description: '20-min moderate climbing' } }
+            ]
+          },
+          {
+            day: 'Sunday',
+            focus: 'Active Recovery',
+            exercises: [
+              { name: 'Easy Climbing', type: 'timer', baselineDetails: { sets: 1, duration: 2400, rest: 0, description: '40-min easy climbing or hiking' } }
+            ]
+          }
+        ]
+      },
+      progressionSettings: {
+        strategy: 'linear',
+        increments: {
+          sets: 0,
+          reps: 0.3,
+          weight: 2.5,
+          duration: 20
+        },
+        userMultiplier: 1.0,
+        adaptiveEnabled: true
+      }
+    }
+  ],
+  running: [
+    {
+      id: 'running-5k',
+      name: 'Couch to 5K',
+      sport: 'running',
+      description: '8-week plan to run your first 5K',
+      durationWeeks: 8,
+      baseWeek: {
+        days: [
+          {
+            day: 'Monday',
+            focus: 'Interval Training',
+            exercises: [
+              { name: 'Walk Warm-up', type: 'timer', baselineDetails: { sets: 1, duration: 300, rest: 0, description: '5-min brisk walk' } },
+              { name: 'Run/Walk Intervals', type: 'timer', baselineDetails: { sets: 5, duration: 60, rest: 120, description: '1-min run, 2-min walk' } },
+              { name: 'Cool-down Walk', type: 'timer', baselineDetails: { sets: 1, duration: 300, rest: 0, description: '5-min easy walk' } }
+            ]
+          },
+          {
+            day: 'Tuesday',
+            focus: 'Rest or Cross-train',
+            exercises: [
+              { name: 'Optional: Cycling or Swimming', type: 'timer', baselineDetails: { sets: 1, duration: 1800, rest: 0, description: '30-min low-intensity cardio' } }
+            ]
+          },
+          {
+            day: 'Wednesday',
+            focus: 'Easy Run',
+            exercises: [
+              { name: 'Warm-up Walk', type: 'timer', baselineDetails: { sets: 1, duration: 300, rest: 0, description: '5-min walk' } },
+              { name: 'Easy Run', type: 'timer', baselineDetails: { sets: 1, duration: 600, rest: 0, description: '10-min easy pace run' } },
+              { name: 'Cool-down Walk', type: 'timer', baselineDetails: { sets: 1, duration: 300, rest: 0, description: '5-min walk' } }
+            ]
+          },
+          {
+            day: 'Thursday',
+            focus: 'Rest',
+            exercises: []
+          },
+          {
+            day: 'Friday',
+            focus: 'Interval Training',
+            exercises: [
+              { name: 'Warm-up Walk', type: 'timer', baselineDetails: { sets: 1, duration: 300, rest: 0, description: '5-min walk' } },
+              { name: 'Run/Walk Intervals', type: 'timer', baselineDetails: { sets: 5, duration: 60, rest: 120, description: '1-min run, 2-min walk' } },
+              { name: 'Cool-down Walk', type: 'timer', baselineDetails: { sets: 1, duration: 300, rest: 0, description: '5-min walk' } }
+            ]
+          },
+          {
+            day: 'Saturday',
+            focus: 'Long Run',
+            exercises: [
+              { name: 'Warm-up Walk', type: 'timer', baselineDetails: { sets: 1, duration: 300, rest: 0, description: '5-min walk' } },
+              { name: 'Long Easy Run', type: 'timer', baselineDetails: { sets: 1, duration: 900, rest: 0, description: '15-min easy run' } },
+              { name: 'Cool-down Walk', type: 'timer', baselineDetails: { sets: 1, duration: 300, rest: 0, description: '5-min walk' } }
+            ]
+          },
+          {
+            day: 'Sunday',
+            focus: 'Rest or Yoga',
+            exercises: [
+              { name: 'Stretching & Mobility', type: 'timer', baselineDetails: { sets: 1, duration: 1200, rest: 0, description: '20-min stretching' } }
+            ]
+          }
+        ]
+      },
+      progressionSettings: {
+        strategy: 'linear',
+        increments: {
+          sets: 0.5,
+          reps: 0,
+          weight: 0,
+          duration: 60
+        },
+        userMultiplier: 1.0,
+        adaptiveEnabled: true
+      }
+    },
+    {
+      id: 'running-10k',
+      name: '10K Training Plan',
+      sport: 'running',
+      description: '10-week plan to complete a 10K race',
+      durationWeeks: 10,
+      baseWeek: {
+        days: [
+          {
+            day: 'Monday',
+            focus: 'Rest or Easy Run',
+            exercises: [
+              { name: 'Optional Easy Run', type: 'timer', baselineDetails: { sets: 1, duration: 1800, rest: 0, description: '30-min easy pace' } }
+            ]
+          },
+          {
+            day: 'Tuesday',
+            focus: 'Tempo Run',
+            exercises: [
+              { name: 'Warm-up', type: 'timer', baselineDetails: { sets: 1, duration: 600, rest: 0, description: '10-min easy jog' } },
+              { name: 'Tempo Intervals', type: 'timer', baselineDetails: { sets: 3, duration: 600, rest: 180, description: '10-min at tempo pace, 3-min recovery' } },
+              { name: 'Cool-down', type: 'timer', baselineDetails: { sets: 1, duration: 600, rest: 0, description: '10-min easy jog' } }
+            ]
+          },
+          {
+            day: 'Wednesday',
+            focus: 'Easy Run',
+            exercises: [
+              { name: 'Easy Run', type: 'timer', baselineDetails: { sets: 1, duration: 2400, rest: 0, description: '40-min easy pace' } }
+            ]
+          },
+          {
+            day: 'Thursday',
+            focus: 'Intervals',
+            exercises: [
+              { name: 'Warm-up', type: 'timer', baselineDetails: { sets: 1, duration: 600, rest: 0, description: '10-min easy jog' } },
+              { name: 'Speed Intervals', type: 'timer', baselineDetails: { sets: 6, duration: 240, rest: 120, description: '4-min hard, 2-min recovery' } },
+              { name: 'Cool-down', type: 'timer', baselineDetails: { sets: 1, duration: 600, rest: 0, description: '10-min easy jog' } }
+            ]
+          },
+          {
+            day: 'Friday',
+            focus: 'Rest',
+            exercises: []
+          },
+          {
+            day: 'Saturday',
+            focus: 'Long Run',
+            exercises: [
+              { name: 'Long Run', type: 'timer', baselineDetails: { sets: 1, duration: 3600, rest: 0, description: '60-min long run at easy pace' } }
+            ]
+          },
+          {
+            day: 'Sunday',
+            focus: 'Recovery Run',
+            exercises: [
+              { name: 'Recovery Run', type: 'timer', baselineDetails: { sets: 1, duration: 1800, rest: 0, description: '30-min very easy pace' } }
+            ]
+          }
+        ]
+      },
+      progressionSettings: {
+        strategy: 'linear',
+        increments: {
+          sets: 0,
+          reps: 0,
+          weight: 0,
+          duration: 120
+        },
+        userMultiplier: 1.0,
+        adaptiveEnabled: true
+      }
+    }
+  ],
+  strength: [
+    {
+      id: 'strength-beginner',
+      name: 'Starting Strength',
+      sport: 'strength training',
+      description: 'Classic beginner strength program',
+      durationWeeks: 12,
+      baseWeek: {
+        days: [
+          {
+            day: 'Monday',
+            focus: 'Full Body A',
+            exercises: [
+              { name: 'Squat', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '5', weight: '40kg', rest: 180 } },
+              { name: 'Bench Press', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '5', weight: '30kg', rest: 180 } },
+              { name: 'Deadlift', type: 'repsSetsWeight', baselineDetails: { sets: 1, reps: '5', weight: '50kg', rest: 240 } }
+            ]
+          },
+          {
+            day: 'Tuesday',
+            focus: 'Rest',
+            exercises: []
+          },
+          {
+            day: 'Wednesday',
+            focus: 'Full Body B',
+            exercises: [
+              { name: 'Squat', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '5', weight: '40kg', rest: 180 } },
+              { name: 'Overhead Press', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '5', weight: '20kg', rest: 180 } },
+              { name: 'Barbell Row', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '5', weight: '30kg', rest: 180 } }
+            ]
+          },
+          {
+            day: 'Thursday',
+            focus: 'Rest',
+            exercises: []
+          },
+          {
+            day: 'Friday',
+            focus: 'Full Body A',
+            exercises: [
+              { name: 'Squat', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '5', weight: '40kg', rest: 180 } },
+              { name: 'Bench Press', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '5', weight: '30kg', rest: 180 } },
+              { name: 'Deadlift', type: 'repsSetsWeight', baselineDetails: { sets: 1, reps: '5', weight: '50kg', rest: 240 } }
+            ]
+          },
+          {
+            day: 'Saturday',
+            focus: 'Rest',
+            exercises: []
+          },
+          {
+            day: 'Sunday',
+            focus: 'Active Recovery',
+            exercises: [
+              { name: 'Walking or Light Cardio', type: 'timer', baselineDetails: { sets: 1, duration: 1800, rest: 0, description: '30-min easy activity' } }
+            ]
+          }
+        ]
+      },
+      progressionSettings: {
+        strategy: 'linear',
+        increments: {
+          sets: 0,
+          reps: 0,
+          weight: 2.5,
+          duration: 0
+        },
+        userMultiplier: 1.0,
+        adaptiveEnabled: true
+      }
+    },
+    {
+      id: 'strength-ppl',
+      name: 'Push/Pull/Legs',
+      sport: 'strength training',
+      description: '6-day split for intermediate lifters',
+      durationWeeks: 12,
+      baseWeek: {
+        days: [
+          {
+            day: 'Monday',
+            focus: 'Push',
+            exercises: [
+              { name: 'Bench Press', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '6', weight: '60kg', rest: 180 } },
+              { name: 'Overhead Press', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '8', weight: '40kg', rest: 120 } },
+              { name: 'Incline Dumbbell Press', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '10', weight: '20kg', rest: 90 } },
+              { name: 'Tricep Dips', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '12', weight: 'Bodyweight', rest: 90 } },
+              { name: 'Lateral Raises', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '15', weight: '8kg', rest: 60 } }
+            ]
+          },
+          {
+            day: 'Tuesday',
+            focus: 'Pull',
+            exercises: [
+              { name: 'Deadlift', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '5', weight: '100kg', rest: 240 } },
+              { name: 'Pull-ups', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '8', weight: 'Bodyweight', rest: 120 } },
+              { name: 'Barbell Rows', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '8', weight: '60kg', rest: 120 } },
+              { name: 'Face Pulls', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '15', weight: '20kg', rest: 60 } },
+              { name: 'Bicep Curls', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '12', weight: '12kg', rest: 60 } }
+            ]
+          },
+          {
+            day: 'Wednesday',
+            focus: 'Legs',
+            exercises: [
+              { name: 'Squat', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '6', weight: '80kg', rest: 180 } },
+              { name: 'Romanian Deadlift', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '10', weight: '60kg', rest: 120 } },
+              { name: 'Leg Press', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '12', weight: '120kg', rest: 90 } },
+              { name: 'Leg Curls', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '12', weight: '40kg', rest: 60 } },
+              { name: 'Calf Raises', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '15', weight: '40kg', rest: 60 } }
+            ]
+          },
+          {
+            day: 'Thursday',
+            focus: 'Push',
+            exercises: [
+              { name: 'Overhead Press', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '6', weight: '40kg', rest: 180 } },
+              { name: 'Bench Press', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '8', weight: '60kg', rest: 120 } },
+              { name: 'Dumbbell Flyes', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '12', weight: '15kg', rest: 90 } },
+              { name: 'Tricep Extensions', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '12', weight: '20kg', rest: 60 } },
+              { name: 'Front Raises', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '12', weight: '8kg', rest: 60 } }
+            ]
+          },
+          {
+            day: 'Friday',
+            focus: 'Pull',
+            exercises: [
+              { name: 'Barbell Rows', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '6', weight: '70kg', rest: 180 } },
+              { name: 'Lat Pulldowns', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '10', weight: '60kg', rest: 90 } },
+              { name: 'Cable Rows', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '12', weight: '50kg', rest: 90 } },
+              { name: 'Shrugs', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '15', weight: '40kg', rest: 60 } },
+              { name: 'Hammer Curls', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '12', weight: '12kg', rest: 60 } }
+            ]
+          },
+          {
+            day: 'Saturday',
+            focus: 'Legs',
+            exercises: [
+              { name: 'Front Squat', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '8', weight: '60kg', rest: 180 } },
+              { name: 'Lunges', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '10', weight: '20kg', rest: 90 } },
+              { name: 'Leg Extensions', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '15', weight: '50kg', rest: 60 } },
+              { name: 'Leg Curls', type: 'repsSetsWeight', baselineDetails: { sets: 3, reps: '15', weight: '40kg', rest: 60 } },
+              { name: 'Seated Calf Raises', type: 'repsSetsWeight', baselineDetails: { sets: 4, reps: '20', weight: '30kg', rest: 60 } }
+            ]
+          },
+          {
+            day: 'Sunday',
+            focus: 'Rest',
+            exercises: []
+          }
+        ]
+      },
+      progressionSettings: {
+        strategy: 'linear',
+        increments: {
+          sets: 0,
+          reps: 0,
+          weight: 2.5,
+          duration: 0
+        },
+        userMultiplier: 1.0,
+        adaptiveEnabled: true
+      }
+    }
+  ]
+};
+
+// --- System Prompt for AI Plan Generation (Updated for baseWeek) ---
+const AI_PLAN_SYSTEM_PROMPT = `You are an expert fitness planner. The user will provide their background, sport/activity, and goals. Create a structured JSON training plan with a SINGLE REPEATING WEEK that will progress over time.
 
 CRITICAL: The output *must* be ONLY a single JSON object. No markdown code blocks, no comments, no explanations.
 - Do NOT include \`\`\`json or \`\`\`
 - Do NOT include // comments in the JSON
-- Generate ALL weeks (if 12 weeks, include all 12 week objects)
+- Generate a SINGLE base week that repeats (NOT all 12 weeks)
 - Return ONLY pure JSON
 
-The user will provide their context and goals in their message. Use that information to create a science-based, day-by-day plan that is hassle-free and guides the user toward their specific objectives.
+The user will provide their context and goals in their message. Use that information to create a science-based, week-based plan that progresses automatically through progressive overload.
 
 The JSON structure must be:
 {
   "planName": "A catchy name for the plan based on the user's goal",
+  "planType": "repeating-week",
+  "sport": "the primary sport/activity",
   "durationWeeks": 12,
-  "weeks": [
-    {
-      "weekNumber": 1,
-      "days": [
-        { "day": "Monday", "focus": "Strength Training", "exercises": [
-            { "name": "Squat", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "5", "weight": "80% 1RM", "rest": 180 } },
-            { "name": "Bench Press", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "5", "weight": "80% 1RM", "rest": 120 } },
-            { "name": "Overhead Press", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "8", "weight": "RPE 8", "rest": 90 } }
-        ]},
-        { "day": "Tuesday", "focus": "Sport-Specific Training", "exercises": [
-            { "name": "Warm-up", "type": "timer", "details": { "sets": 1, "duration": 600, "rest": 0, "description": "10-min general warm-up." } },
-            { "name": "Sport-Specific Drill", "type": "timer", "details": { "sets": 4, "duration": 300, "rest": 180, "description": "Sport-specific practice with rest intervals." } }
-        ]},
-        { "day": "Wednesday", "focus": "Conditioning & Core", "exercises": [
-            { "name": "Warm-up", "type": "timer", "details": { "sets": 1, "duration": 600, "rest": 0, "description": "10-min warm-up: jumping jacks, arm circles, etc." } },
-            { "name": "Core Work", "type": "timer", "details": { "sets": 3, "duration": 60, "rest": 60, "description": "Core strengthening exercises." } },
-            { "name": "Plank", "type": "timer", "details": { "sets": 3, "duration": 60, "rest": 60, "description": "1 min plank, 1 min rest." } }
-        ]},
-        { "day": "Thursday", "focus": "Rest", "exercises": [] },
-        { "day": "Friday", "focus": "Strength Training", "exercises": [
-            { "name": "Deadlift", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "5", "weight": "85% 1RM", "rest": 240 } },
-            { "name": "Pull-ups", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "8", "weight": "Bodyweight", "rest": 120 } },
-            { "name": "Rows", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "10", "weight": "Moderate", "rest": 90 } }
-        ]},
-        { "day": "Saturday", "focus": "Sport-Specific Training", "exercises": [
-            { "name": "Warm-up", "type": "timer", "details": { "sets": 1, "duration": 900, "rest": 0, "description": "15-min warm-up specific to the sport." } },
-            { "name": "Skill Practice", "type": "timer", "details": { "sets": 1, "duration": 3600, "rest": 0, "description": "60 mins: Focused skill work and practice." } }
-        ]},
-        { "day": "Sunday", "focus": "Active Recovery", "exercises": [
-            { "name": "Light Cardio", "type": "timer", "details": { "sets": 1, "duration": 1800, "rest": 0, "description": "30-minute light cardio activity (walk, bike, swim)." } }
-        ]}
-      ]
-    }
-  ]
+  "baseWeek": {
+    "days": [
+      {
+        "day": "Monday",
+        "focus": "Strength Training",
+        "exercises": [
+          {
+            "name": "Squat",
+            "type": "repsSetsWeight",
+            "baselineDetails": {
+              "sets": 3,
+              "reps": "5",
+              "weight": "80kg",
+              "rest": 180
+            }
+          },
+          {
+            "name": "Warm-up",
+            "type": "timer",
+            "baselineDetails": {
+              "sets": 1,
+              "duration": 600,
+              "rest": 0,
+              "description": "10-min warm-up"
+            }
+          }
+        ]
+      },
+      {
+        "day": "Tuesday",
+        "focus": "Rest",
+        "exercises": []
+      },
+      {
+        "day": "Wednesday",
+        "focus": "Cardio",
+        "exercises": [...]
+      },
+      {
+        "day": "Thursday",
+        "focus": "Strength",
+        "exercises": [...]
+      },
+      {
+        "day": "Friday",
+        "focus": "Rest",
+        "exercises": []
+      },
+      {
+        "day": "Saturday",
+        "focus": "Sport Practice",
+        "exercises": [...]
+      },
+      {
+        "day": "Sunday",
+        "focus": "Active Recovery",
+        "exercises": [...]
+      }
+    ]
+  },
+  "progressionSettings": {
+    "strategy": "linear",
+    "increments": {
+      "sets": 0,
+      "reps": 1,
+      "weight": 2.5,
+      "duration": 30
+    },
+    "userMultiplier": 1.0,
+    "adaptiveEnabled": true
+  }
 }
 
-IMPORTANT: Adapt the exercises, focus areas, and training structure to match the user's specific sport and goals. The example above is generic - customize it based on what the user requests (running, swimming, cycling, martial arts, weightlifting, team sports, climbing, etc.).
-`;
+IMPORTANT NOTES:
+1. Use "baselineDetails" instead of "details" for exercises - these are the Week 1 starting values
+2. The app will automatically calculate progressive overload each week based on progressionSettings
+3. For weight increments, use appropriate values: 2.5-5kg for upper body, 5-10kg for lower body
+4. For duration increments, 20-60 seconds per week is typical
+5. For reps, 0.5-1 rep per week for strength, 1-2 for endurance
+6. Include all 7 days (Monday-Sunday) with appropriate rest days
+7. Adapt the exercises, focus areas, and progression to match the user's specific sport and goals`;
 
 // --- Global API Helper ---
 const callGeminiApi = async (userQuery, systemPrompt) => {
@@ -130,7 +771,6 @@ const callGeminiApi = async (userQuery, systemPrompt) => {
     },
   };
 
-  // Implement exponential backoff for retries
   let response;
   let delay = 1000;
   for (let i = 0; i < 5; i++) {
@@ -150,16 +790,14 @@ const callGeminiApi = async (userQuery, systemPrompt) => {
           throw new Error("Invalid response structure from API.");
         }
       } else if (response.status === 429 || response.status >= 500) {
-        // Retry on rate limiting or server errors
         await new Promise(resolve => setTimeout(resolve, delay));
         delay *= 2;
       } else {
-        // Don't retry on other client errors
         const errText = await response.text();
         throw new Error(`API Error: ${response.status} ${errText}`);
       }
     } catch (e) {
-      if (i === 4) throw e; // Rethrow last error
+      if (i === 4) throw e;
       await new Promise(resolve => setTimeout(resolve, delay));
       delay *= 2;
     }
@@ -167,23 +805,14 @@ const callGeminiApi = async (userQuery, systemPrompt) => {
   throw new Error("Failed to get response from API after retries.");
 };
 
-
 // --- React Components ---
 
-/**
- * LoadingSpinner Component
- * A simple reusable spinner.
- */
 const LoadingSpinner = () => (
   <div className="flex justify-center items-center h-full">
     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div>
   </div>
 );
 
-/**
- * ExerciseInfo Component
- * Displays a modal with AI-generated info about an exercise.
- */
 const ExerciseInfo = ({ exerciseName }) => {
   const [showModal, setShowModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -191,18 +820,18 @@ const ExerciseInfo = ({ exerciseName }) => {
   const [error, setError] = useState(null);
 
   const handleGetInfo = async () => {
-    if (info) { // Already fetched
+    if (info) {
       setShowModal(true);
       return;
     }
-    
+
     setIsLoading(true);
     setShowModal(true);
     setError(null);
-    
+
     const userQuery = `Explain how to perform the exercise "${exerciseName}" and its primary benefit. Keep it concise (2-3 sentences).`;
     const systemPrompt = "You are a fitness coach. Explain exercises clearly and simply.";
-    
+
     try {
       const response = await callGeminiApi(userQuery, systemPrompt);
       setInfo(response);
@@ -216,8 +845,8 @@ const ExerciseInfo = ({ exerciseName }) => {
 
   return (
     <>
-      <button 
-        onClick={handleGetInfo} 
+      <button
+        onClick={handleGetInfo}
         className="absolute top-2 right-2 text-gray-400 hover:text-indigo-400"
         aria-label={`More info about ${exerciseName}`}
       >
@@ -227,7 +856,7 @@ const ExerciseInfo = ({ exerciseName }) => {
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 rounded-lg p-6 max-w-sm w-full relative">
-            <button 
+            <button
               onClick={() => setShowModal(false)}
               className="absolute top-3 right-3 text-gray-500 hover:text-white"
             >
@@ -244,24 +873,19 @@ const ExerciseInfo = ({ exerciseName }) => {
   );
 };
 
-
-/**
- * TimerComponent
- * The companion for 'timer' type exercises like intervals, holds, and timed drills.
- */
 const TimerComponent = ({ exercise, onComplete }) => {
   const { sets, duration, rest, description } = exercise.details;
-  
+
   const [currentSet, setCurrentSet] = useState(1);
   const [isResting, setIsResting] = useState(false);
   const [timeLeft, setTimeLeft] = useState(duration);
   const [isActive, setIsActive] = useState(false);
-  
+
   const timerRef = useRef(null);
 
   const startTimer = () => setIsActive(true);
   const pauseTimer = () => setIsActive(false);
-  
+
   const resetTimer = () => {
     pauseTimer();
     setCurrentSet(1);
@@ -274,21 +898,17 @@ const TimerComponent = ({ exercise, onComplete }) => {
       timerRef.current = setInterval(() => {
         setTimeLeft((prevTime) => {
           if (prevTime <= 1) {
-            // Timer finished
             if (!isResting) {
-              // Work set finished, start rest
               if (currentSet < sets) {
                 setIsResting(true);
                 return rest;
               } else {
-                // All sets finished
                 clearInterval(timerRef.current);
                 setIsActive(false);
                 onComplete();
                 return 0;
               }
             } else {
-              // Rest finished, start next set
               setIsResting(false);
               setCurrentSet((prevSet) => prevSet + 1);
               return duration;
@@ -309,12 +929,12 @@ const TimerComponent = ({ exercise, onComplete }) => {
       <ExerciseInfo exerciseName={exercise.name} />
       <div className="mb-2 text-lg font-semibold">{exercise.name}</div>
       {description && <div className="mb-4 text-sm text-gray-400">{description}</div>}
-      
+
       <div className="text-xl font-medium mb-4">
         Set {currentSet} / {sets}
       </div>
-      
-      <div 
+
+      <div
         className={`my-4 rounded-full w-48 h-48 flex flex-col items-center justify-center border-8 ${isResting ? 'border-blue-500' : 'border-green-500'}`}
       >
         <div className="text-sm uppercase tracking-widest">
@@ -324,7 +944,7 @@ const TimerComponent = ({ exercise, onComplete }) => {
           {formatTimer(timeLeft)}
         </div>
       </div>
-      
+
       <div className="flex gap-4">
         <button
           onClick={isActive ? pauseTimer : startTimer}
@@ -343,34 +963,51 @@ const TimerComponent = ({ exercise, onComplete }) => {
   );
 };
 
-/**
- * RepsSetsWeightComponent
- * The companion for 'repsSetsWeight' type exercises.
- */
-const RepsSetsWeightComponent = ({ exercise }) => {
+const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber = 1 }) => {
   const { sets, reps, weight, rest, description } = exercise.details;
-  
+
+  // Show baseline vs suggested comparison
+  const baseline = exercise.baselineDetails || exercise.details;
+
   return (
     <div className="p-6 bg-gray-800 rounded-lg text-white w-full relative">
       <ExerciseInfo exerciseName={exercise.name} />
       <div className="mb-4 text-2xl font-bold text-center">{exercise.name}</div>
       {description && <div className="mb-4 text-sm text-gray-300 text-center">{description}</div>}
-      
+
+      {showSuggested && weekNumber > 1 && (
+        <div className="mb-4 text-center">
+          <div className="inline-flex items-center gap-2 bg-green-900 bg-opacity-30 px-3 py-1 rounded-full">
+            <TrendingUp size={16} className="text-green-400" />
+            <span className="text-sm text-green-400">Week {weekNumber} Progression</span>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-4 text-center">
         <div>
           <div className="text-sm uppercase text-gray-400">Sets</div>
           <div className="text-3xl font-bold">{sets}</div>
+          {showSuggested && weekNumber > 1 && sets !== baseline.sets && (
+            <div className="text-xs text-green-400 mt-1">+{sets - baseline.sets}</div>
+          )}
         </div>
         <div>
           <div className="text-sm uppercase text-gray-400">Reps</div>
           <div className="text-3xl font-bold">{reps}</div>
+          {showSuggested && weekNumber > 1 && reps !== baseline.reps && (
+            <div className="text-xs text-green-400 mt-1">↑</div>
+          )}
         </div>
         <div>
           <div className="text-sm uppercase text-gray-400">Weight</div>
           <div className="text-3xl font-bold">{weight}</div>
+          {showSuggested && weekNumber > 1 && weight !== baseline.weight && (
+            <div className="text-xs text-green-400 mt-1">↑</div>
+          )}
         </div>
       </div>
-      
+
       {rest > 0 && (
         <div className="mt-6 text-center">
           <div className="text-sm uppercase text-gray-400">Rest Between Sets</div>
@@ -381,16 +1018,12 @@ const RepsSetsWeightComponent = ({ exercise }) => {
   );
 };
 
-/**
- * ActiveWorkoutView
- * The main view when a workout is in progress.
- */
 const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboard }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isCompleting, setIsCompleting] = useState(false);
-  
+
   const currentExercise = dayData.exercises[currentIndex];
-  
+
   const handleNext = () => {
     if (currentIndex < dayData.exercises.length - 1) {
       setCurrentIndex(currentIndex + 1);
@@ -401,14 +1034,13 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboa
     setIsCompleting(true);
     try {
       const historyColRef = collection(db, 'artifacts', appId, 'users', userId, 'history');
-      
-      // Calculate current plan week
-      const planStartDate = plan.createdAt; // FIX: It's already a Date object
+
+      const planStartDate = plan.createdAt;
       const today = new Date();
       const diffTime = Math.abs(today - planStartDate);
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      const currentPlanWeek = Math.floor(diffDays / 7) + 1;
-      
+      const currentPlanWeek = (Math.floor(diffDays / 7) % plan.durationWeeks) + 1;
+
       await addDoc(historyColRef, {
         completedAt: serverTimestamp(),
         planName: plan.planName,
@@ -423,7 +1055,7 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboa
       setIsCompleting(false);
     }
   };
-  
+
   const isLastExercise = currentIndex === dayData.exercises.length - 1;
 
   const handleDone = () => {
@@ -433,12 +1065,12 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboa
       handleNext();
     }
   };
-  
+
   const handleSkip = () => {
     if (isLastExercise) {
-      handleFinish(); // If skipping last exercise, finish workout
+      handleFinish();
     } else {
-      handleNext(); // Go to next exercise
+      handleNext();
     }
   };
 
@@ -451,20 +1083,23 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboa
       <div className="text-center text-gray-400 mb-6">
         Exercise {currentIndex + 1} of {dayData.exercises.length}
       </div>
-      
+
       <div className="flex-grow flex items-center justify-center">
         {currentExercise.type === 'timer' ? (
-          <TimerComponent 
-            exercise={currentExercise} 
-            onComplete={handleDone} 
+          <TimerComponent
+            exercise={currentExercise}
+            onComplete={handleDone}
           />
         ) : (
-          <RepsSetsWeightComponent exercise={currentExercise} />
+          <RepsSetsWeightComponent
+            exercise={currentExercise}
+            showSuggested={true}
+            weekNumber={dayData.weekNumber || 1}
+          />
         )}
       </div>
-      
+
       <div className="mt-8 space-y-3">
-        {/* "Done" or "Finish" button (only for non-timer) */}
         {currentExercise.type !== 'timer' && (
            <button
               onClick={handleDone}
@@ -476,7 +1111,6 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboa
            </button>
         )}
 
-        {/* "Skip" button (always visible) */}
         <button
            onClick={handleSkip}
            disabled={isCompleting}
@@ -489,43 +1123,61 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboa
   );
 };
 
-/**
- * DashboardView
- * The main screen of the app.
- */
 const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan, startWorkout, showPlanManagement }) => {
   const [selectedDayName, setSelectedDayName] = useState(getTodayDayName());
   const [isLogging, setIsLogging] = useState(false);
   const todayDayName = getTodayDayName();
 
-  const { currentWeekData, todayWorkoutData, currentPlanWeek, isCompletedToday } = useMemo(() => {
-    if (!plan || !plan.createdAt) {
-      return { currentWeekData: null, todayWorkoutData: null, currentPlanWeek: null, isCompletedToday: false };
+  const { currentWeekData, todayWorkoutData, currentPlanWeek, isCompletedToday, adaptiveFactor } = useMemo(() => {
+    if (!plan || !plan.createdAt || !plan.baseWeek) {
+      return { currentWeekData: null, todayWorkoutData: null, currentPlanWeek: null, isCompletedToday: false, adaptiveFactor: 1.0 };
     }
 
-    const planStartDate = plan.createdAt; // FIX: It's already a Date object
+    const planStartDate = plan.createdAt;
     const today = new Date();
-    
-    // Calculate current plan week
+
     const diffTime = Math.abs(today - planStartDate);
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     const currentPlanWeek = (Math.floor(diffDays / 7) % plan.durationWeeks) + 1;
 
-    const weekData = plan.weeks.find(w => w.weekNumber === currentPlanWeek) || plan.weeks[0];
-    const todayData = weekData.days.find(d => d.day === todayDayName);
-    
-    // Check if today's workout is completed
+    // Calculate adaptive factor
+    const adaptiveFactor = plan.progressionSettings?.adaptiveEnabled
+      ? calculateAdaptiveFactor(history, currentPlanWeek)
+      : 1.0;
+
+    // Apply progression to baseWeek to get current week's plan
+    const currentWeek = {
+      weekNumber: currentPlanWeek,
+      days: plan.baseWeek.days.map(day => ({
+        ...day,
+        exercises: day.exercises.map(ex => ({
+          ...ex,
+          details: ex.type === 'timer' || ex.type === 'repsSetsWeight'
+            ? applyProgression(
+                ex.baselineDetails || ex.details,
+                currentPlanWeek,
+                plan.progressionSettings || { strategy: 'linear', increments: {}, userMultiplier: 1.0 },
+                adaptiveFactor
+              )
+            : ex.details
+        }))
+      }))
+    };
+
+    const todayData = currentWeek.days.find(d => d.day === todayDayName);
+
     const todayStr = today.toISOString().split('T')[0];
     const completedToday = history.some(log => {
-      const logDate = log.completedAt.toISOString().split('T')[0]; // FIX: It's already a Date
+      const logDate = log.completedAt.toISOString().split('T')[0];
       return logDate === todayStr && log.day === todayDayName;
     });
 
-    return { 
-      currentWeekData: weekData, 
-      todayWorkoutData: todayData, 
+    return {
+      currentWeekData: currentWeek,
+      todayWorkoutData: todayData,
       currentPlanWeek,
-      isCompletedToday: completedToday
+      isCompletedToday: completedToday,
+      adaptiveFactor
     };
   }, [plan, history, todayDayName]);
 
@@ -536,20 +1188,19 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
 
   const handleLogAsDone = async () => {
     if (!todayWorkoutData || isLogging || !plan) return;
-    
+
     setIsLogging(true);
     try {
       const historyColRef = collection(db, 'artifacts', appId, 'users', userId, 'history');
-      
+
       await addDoc(historyColRef, {
         completedAt: serverTimestamp(),
         planName: plan.planName,
-        weekNumber: currentPlanWeek, // Already calculated in useMemo
+        weekNumber: currentPlanWeek,
         day: todayWorkoutData.day,
         focus: todayWorkoutData.focus,
         exercises: todayWorkoutData.exercises.map(e => e.name)
       });
-      // The onSnapshot listener will update the UI (isCompletedToday) automatically
     } catch (error) {
       console.error("Error logging workout:", error);
     } finally {
@@ -563,10 +1214,10 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
         <Dumbbell size={64} className="text-indigo-400 mb-6" />
         <h2 className="text-2xl font-bold mb-2">Welcome to Your AI Trainer</h2>
         <p className="text-gray-400 mb-8">
-          Get started by generating a personalized training plan based on your goals.
+          Get started by creating a personalized training plan.
         </p>
         <button
-          onClick={() => showCreatePlan('ai')}
+          onClick={() => showCreatePlan('choice')}
           className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 text-lg"
         >
           <PlusCircle size={20} />
@@ -583,8 +1234,8 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
       </div>
     );
   }
-  
-  const weekDays = currentWeekData.days.map(d => d.day); // Assumes 7 days in order
+
+  const weekDays = currentWeekData.days.map(d => d.day);
 
   return (
     <div className="p-4 pt-10">
@@ -592,25 +1243,30 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
         <div>
           <h1 className="text-3xl font-bold">{plan.planName}</h1>
           <p className="text-gray-400">Week {currentPlanWeek} of {plan.durationWeeks}</p>
+          {plan.progressionSettings?.adaptiveEnabled && (
+            <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
+              <Sparkles size={12} />
+              <span>Adaptive progression: {(adaptiveFactor * 100).toFixed(0)}%</span>
+            </div>
+          )}
         </div>
         <button onClick={showPlanManagement} className="text-indigo-400 text-sm">
           Manage Plan
         </button>
       </div>
 
-      {/* Today's Workout Section */}
       <div className="bg-gray-800 rounded-lg p-6 mb-6">
         <h2 className="text-xl font-bold mb-4">Today's Workout: {todayWorkoutData.focus}</h2>
         {todayWorkoutData.exercises.length === 0 ? (
           <p className="text-gray-400">Rest Day. Enjoy!</p>
         ) : (
           <ul className="list-disc list-inside text-gray-300 mb-6">
-            {todayWorkoutData.exercises.map(ex => (
-              <li key={ex.name}>{ex.name}</li>
+            {todayWorkoutData.exercises.map((ex, idx) => (
+              <li key={idx}>{ex.name}</li>
             ))}
           </ul>
         )}
-        
+
         {todayWorkoutData.exercises.length > 0 && (
           isCompletedToday ? (
             <div className="w-full bg-green-600 text-white py-3 rounded-lg text-lg font-semibold flex items-center justify-center gap-2 text-center">
@@ -620,7 +1276,7 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
           ) : (
             <div className="flex flex-col sm:flex-row gap-3">
               <button
-                onClick={() => startWorkout(todayWorkoutData)}
+                onClick={() => startWorkout({ ...todayWorkoutData, weekNumber: currentPlanWeek })}
                 disabled={isLogging}
                 className="flex-1 bg-indigo-600 text-white py-3 rounded-lg text-lg font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
               >
@@ -640,7 +1296,6 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
         )}
       </div>
 
-      {/* Weekly View Section */}
       <div>
         <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
           <CalendarDays size={20} />
@@ -652,8 +1307,8 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
               key={day}
               onClick={() => setSelectedDayName(day)}
               className={`flex-1 p-2 rounded-lg text-center ${
-                selectedDayName === day 
-                  ? 'bg-indigo-600 text-white' 
+                selectedDayName === day
+                  ? 'bg-indigo-600 text-white'
                   : 'bg-gray-700'
               } ${
                 day === todayDayName ? 'ring-2 ring-indigo-400' : ''
@@ -663,15 +1318,15 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
             </button>
           ))}
         </div>
-        
+
         <div className="bg-gray-800 rounded-lg p-4 min-h-[150px]">
           <h4 className="font-semibold text-lg">{selectedDayName}: {selectedDayData.focus}</h4>
           {selectedDayData.exercises.length === 0 ? (
             <p className="text-gray-400 mt-2">Rest Day</p>
           ) : (
             <ul className="list-disc list-inside text-gray-300 mt-2">
-              {selectedDayData.exercises.map(ex => (
-                <li key={ex.name}>{ex.name}</li>
+              {selectedDayData.exercises.map((ex, idx) => (
+                <li key={idx}>{ex.name}</li>
               ))}
             </ul>
           )}
@@ -680,11 +1335,6 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
     </div>
   );
 };
-
-/**
- * CreatePlanView
- * The view for generating a new plan via AI or manual input.
- */
 const CreatePlanView = ({ db, auth, userId, appId, showDashboard, defaultView = 'ai' }) => {
   const [goal, setGoal] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -1565,6 +2215,5 @@ export default function App() {
     </div>
   );
 }
-
 
 
