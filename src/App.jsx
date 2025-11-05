@@ -65,7 +65,7 @@ const formatTimer = (seconds) => {
 };
 
 // --- System Prompt for AI Plan Generation ---
-const AI_PLAN_SYSTEM_PROMPT = `You are an expert fitness planner. The user will provide a goal. Create a structured JSON training plan.
+const AI_PLAN_SYSTEM_PROMPT = `You are an expert fitness planner. The user will provide their background, sport/activity, and goals. Create a structured JSON training plan tailored to their needs.
 
 CRITICAL: The output *must* be ONLY a single JSON object. No markdown code blocks, no comments, no explanations.
 - Do NOT include \`\`\`json or \`\`\`
@@ -73,49 +73,49 @@ CRITICAL: The output *must* be ONLY a single JSON object. No markdown code block
 - Generate ALL weeks (if 12 weeks, include all 12 week objects)
 - Return ONLY pure JSON
 
-**Use this user context:** 36-year-old male, 76kg, 1m79.
-**Goals:** V10 Moonboard, 8a outdoor climbing, one-arm pull-up, maintain Squat/Bench/Deadlift on Mon/Fri (PRs: 120/90/160kg), and include light cardio.
-Create a science-based, day-by-day plan that is hassle-free and guides the user.
+The user will provide their context and goals in their message. Use that information to create a science-based, day-by-day plan that is hassle-free and guides the user toward their specific objectives.
 
 The JSON structure must be:
 {
-  "planName": "A catchy name for the plan (e.g., 'Project V10')",
+  "planName": "A catchy name for the plan based on the user's goal",
   "durationWeeks": 12,
   "weeks": [
     {
       "weekNumber": 1,
       "days": [
-        { "day": "Monday", "focus": "Strength (Legs/Push)", "exercises": [
+        { "day": "Monday", "focus": "Strength Training", "exercises": [
             { "name": "Squat", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "5", "weight": "80% 1RM", "rest": 180 } },
             { "name": "Bench Press", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "5", "weight": "80% 1RM", "rest": 120 } },
             { "name": "Overhead Press", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "8", "weight": "RPE 8", "rest": 90 } }
         ]},
-        { "day": "Tuesday", "focus": "Climbing (Endurance)", "exercises": [
-            { "name": "Warm-up", "type": "timer", "details": { "sets": 1, "duration": 600, "rest": 0, "description": "10-min general warm-up, light traversing." } },
-            { "name": "4x4s", "type": "timer", "details": { "sets": 4, "duration": 240, "rest": 240, "description": "4 routes back-to-back, 4 min rest. Repeat 4 times." } }
+        { "day": "Tuesday", "focus": "Sport-Specific Training", "exercises": [
+            { "name": "Warm-up", "type": "timer", "details": { "sets": 1, "duration": 600, "rest": 0, "description": "10-min general warm-up." } },
+            { "name": "Sport-Specific Drill", "type": "timer", "details": { "sets": 4, "duration": 300, "rest": 180, "description": "Sport-specific practice with rest intervals." } }
         ]},
-        { "day": "Wednesday", "focus": "Hangboard & Core", "exercises": [
+        { "day": "Wednesday", "focus": "Conditioning & Core", "exercises": [
             { "name": "Warm-up", "type": "timer", "details": { "sets": 1, "duration": 600, "rest": 0, "description": "10-min warm-up: jumping jacks, arm circles, etc." } },
-            { "name": "Max Hangs (20mm)", "type": "timer", "details": { "sets": 5, "duration": 10, "rest": 180, "description": "10s max hang, 3min rest." } },
+            { "name": "Core Work", "type": "timer", "details": { "sets": 3, "duration": 60, "rest": 60, "description": "Core strengthening exercises." } },
             { "name": "Plank", "type": "timer", "details": { "sets": 3, "duration": 60, "rest": 60, "description": "1 min plank, 1 min rest." } }
         ]},
         { "day": "Thursday", "focus": "Rest", "exercises": [] },
-        { "day": "Friday", "focus": "Strength (Pull/Legs)", "exercises": [
-            { "name": "Deadlift", "type": "repsSetsWeight", "details": { "sets": 1, "reps": "5", "weight": "85% 1RM", "rest": 240 } },
-            { "name": "One Arm Pull-up Negatives", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "3 (each arm)", "weight": "Bodyweight", "rest": 120 } },
-            { "name": "Front Lever Tucks", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "10s hold", "weight": "Bodyweight", "rest": 90 } }
+        { "day": "Friday", "focus": "Strength Training", "exercises": [
+            { "name": "Deadlift", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "5", "weight": "85% 1RM", "rest": 240 } },
+            { "name": "Pull-ups", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "8", "weight": "Bodyweight", "rest": 120 } },
+            { "name": "Rows", "type": "repsSetsWeight", "details": { "sets": 3, "reps": "10", "weight": "Moderate", "rest": 90 } }
         ]},
-        { "day": "Saturday", "focus": "Climbing (Moonboard)", "exercises": [
-            { "name": "Warm-up", "type": "timer", "details": { "sets": 1, "duration": 900, "rest": 0, "description": "15-min warm-up, progressively harder boulders." } },
-            { "name": "Limit Bouldering", "type": "timer", "details": { "sets": 1, "duration": 3600, "rest": 0, "description": "60 mins: Try V-limit projects on Moonboard. Rest 3-5 mins between attempts." } }
+        { "day": "Saturday", "focus": "Sport-Specific Training", "exercises": [
+            { "name": "Warm-up", "type": "timer", "details": { "sets": 1, "duration": 900, "rest": 0, "description": "15-min warm-up specific to the sport." } },
+            { "name": "Skill Practice", "type": "timer", "details": { "sets": 1, "duration": 3600, "rest": 0, "description": "60 mins: Focused skill work and practice." } }
         ]},
-        { "day": "Sunday", "focus": "Light Cardio / Rest", "exercises": [
-            { "name": "Jog or Walk", "type": "timer", "details": { "sets": 1, "duration": 1800, "rest": 0, "description": "30-minute light jog or brisk walk." } }
+        { "day": "Sunday", "focus": "Active Recovery", "exercises": [
+            { "name": "Light Cardio", "type": "timer", "details": { "sets": 1, "duration": 1800, "rest": 0, "description": "30-minute light cardio activity (walk, bike, swim)." } }
         ]}
       ]
     }
   ]
 }
+
+IMPORTANT: Adapt the exercises, focus areas, and training structure to match the user's specific sport and goals. The example above is generic - customize it based on what the user requests (running, swimming, cycling, martial arts, weightlifting, team sports, climbing, etc.).
 `;
 
 // --- Global API Helper ---
@@ -247,7 +247,7 @@ const ExerciseInfo = ({ exerciseName }) => {
 
 /**
  * TimerComponent
- * The companion for 'timer' type exercises like hangboarding.
+ * The companion for 'timer' type exercises like intervals, holds, and timed drills.
  */
 const TimerComponent = ({ exercise, onComplete }) => {
   const { sets, duration, rest, description } = exercise.details;
@@ -820,15 +820,16 @@ const CreatePlanView = ({ db, auth, userId, appId, showDashboard, defaultView = 
       {view === 'ai' && (
         <div className="flex flex-col gap-4">
           <label htmlFor="goal" className="font-semibold text-gray-300">
-            What is your training goal?
+            Describe your training goals and background
           </label>
+          <p className="text-sm text-gray-400 -mt-2">Include your sport/activity, current fitness level, and what you want to achieve</p>
           <textarea
             id="goal"
             rows="4"
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
             className="w-full p-3 bg-gray-800 rounded-lg text-white border border-gray-700 focus:ring-2 focus:ring-indigo-500"
-            placeholder="e.g., 'I want to run a 5k in 8 weeks' or 'I want to be able to do 10 pull-ups'"
+            placeholder="e.g., 'I want to run a 5k in 8 weeks', 'Train for a cycling race', 'Improve my basketball skills', 'Get stronger for powerlifting'"
           />
           <button
             onClick={handleGenerate}
