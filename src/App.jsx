@@ -1343,8 +1343,13 @@ const CreatePlanView = ({ db, auth, userId, appId, showDashboard, defaultView = 
   const [manualJson, setManualJson] = useState('');
 
   const savePlanToFirestore = async (planObject) => {
-    if (!planObject.planName || !planObject.weeks || !planObject.durationWeeks) {
+    if (!planObject.planName || !planObject.baseWeek || !planObject.durationWeeks) {
       throw new Error("Invalid plan structure. Missing required fields.");
+    }
+
+    // Validate baseWeek structure
+    if (!planObject.baseWeek.days || !Array.isArray(planObject.baseWeek.days)) {
+      throw new Error("Invalid plan structure. baseWeek must have a days array.");
     }
     
     const planWithTimestamp = {
@@ -1382,16 +1387,14 @@ const CreatePlanView = ({ db, auth, userId, appId, showDashboard, defaultView = 
 
         parsedPlan = JSON.parse(cleanedResponse);
 
-        // Validate the plan has required fields
-        if (!parsedPlan.planName || !parsedPlan.weeks || !parsedPlan.durationWeeks) {
+        // Validate the plan has required fields for repeating-week format
+        if (!parsedPlan.planName || !parsedPlan.baseWeek || !parsedPlan.durationWeeks) {
           throw new Error("The AI plan is missing required fields. Please try again.");
         }
 
-        // Check if all weeks are present (warn but don't fail)
-        if (parsedPlan.weeks.length < parsedPlan.durationWeeks) {
-          console.warn(`Plan says ${parsedPlan.durationWeeks} weeks but only got ${parsedPlan.weeks.length} weeks`);
-          // Update durationWeeks to match actual weeks generated
-          parsedPlan.durationWeeks = parsedPlan.weeks.length;
+        // Validate baseWeek structure
+        if (!parsedPlan.baseWeek.days || !Array.isArray(parsedPlan.baseWeek.days)) {
+          throw new Error("The AI plan has an invalid baseWeek structure. Please try again.");
         }
       } catch (parseError) {
         console.error("Failed to parse AI response:", jsonResponse);
