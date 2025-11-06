@@ -952,7 +952,7 @@ const ExerciseInfo = ({ exerciseName }) => {
   );
 };
 
-const TimerComponent = ({ exercise, onComplete }) => {
+const TimerComponent = ({ exercise, onComplete, sport }) => {
   const { sets, duration, rest, description } = exercise.details;
 
   const [currentSet, setCurrentSet] = useState(1);
@@ -1010,7 +1010,7 @@ const TimerComponent = ({ exercise, onComplete }) => {
       <ExerciseInfo exerciseName={exercise.name} />
       <div className="mb-2 flex items-center justify-center gap-2">
         <div className="p-2 bg-gray-700 rounded-lg">
-          <ExerciseIcon size={20} className={getExerciseIconColor(plan?.sport)} />
+          <ExerciseIcon size={20} className={getExerciseIconColor(sport)} />
         </div>
         <div className="text-lg font-semibold">{exercise.name}</div>
       </div>
@@ -1049,7 +1049,7 @@ const TimerComponent = ({ exercise, onComplete }) => {
   );
 };
 
-const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber = 1 }) => {
+const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber = 1, sport }) => {
   // Safety check: ensure details exists
   if (!exercise.details) {
     return (
@@ -1072,7 +1072,7 @@ const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber =
       <ExerciseInfo exerciseName={exercise.name} />
       <div className="mb-4 flex items-center justify-center gap-3">
         <div className="p-2 bg-gray-700 rounded-lg">
-          <ExerciseIcon size={24} className={getExerciseIconColor(plan?.sport)} />
+          <ExerciseIcon size={24} className={getExerciseIconColor(sport)} />
         </div>
         <div className="text-2xl font-bold">{exercise.name}</div>
       </div>
@@ -1122,7 +1122,7 @@ const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber =
 };
 
 // Component for active set tracking during workout
-const SetTrackingComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
+const SetTrackingComponent = ({ exercise, onComplete, weekNumber = 1, sport }) => {
   if (!exercise.details) {
     return (
       <div className="p-6 bg-gray-800 rounded-lg text-white w-full">
@@ -1187,7 +1187,7 @@ const SetTrackingComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
       <ExerciseInfo exerciseName={exercise.name} />
       <div className="mb-4 flex items-center justify-center gap-3">
         <div className="p-3 bg-gray-700 rounded-lg">
-          <ExerciseIcon size={28} className={getExerciseIconColor(plan?.sport)} />
+          <ExerciseIcon size={28} className={getExerciseIconColor(sport)} />
         </div>
         <div className="text-2xl font-bold">{exercise.name}</div>
       </div>
@@ -1283,7 +1283,7 @@ const SetTrackingComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
 };
 
 // Hangboard-specific timer component
-const HangboardComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
+const HangboardComponent = ({ exercise, onComplete, weekNumber = 1, sport }) => {
   if (!exercise.details) {
     return (
       <div className="p-6 bg-gray-800 rounded-lg text-white w-full">
@@ -1351,7 +1351,7 @@ const HangboardComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
       <ExerciseInfo exerciseName={exercise.name} />
       <div className="mb-2 flex items-center justify-center gap-2">
         <div className="p-2 bg-gray-700 rounded-lg">
-          <ExerciseIcon size={20} className={getExerciseIconColor(plan?.sport)} />
+          <ExerciseIcon size={20} className={getExerciseIconColor(sport)} />
         </div>
         <div className="text-lg font-semibold">{exercise.name}</div>
       </div>
@@ -1496,24 +1496,28 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, day
           <TimerComponent
             exercise={currentExercise}
             onComplete={handleDone}
+            sport={plan?.sport}
           />
         ) : currentExercise.type === 'hangboard' ? (
           <HangboardComponent
             exercise={currentExercise}
             onComplete={handleDone}
             weekNumber={dayData.weekNumber || 1}
+            sport={plan?.sport}
           />
         ) : currentExercise.type === 'repsSetsWeight' ? (
           <SetTrackingComponent
             exercise={currentExercise}
             onComplete={handleDone}
             weekNumber={dayData.weekNumber || 1}
+            sport={plan?.sport}
           />
         ) : (
           <RepsSetsWeightComponent
             exercise={currentExercise}
             showSuggested={true}
             weekNumber={dayData.weekNumber || 1}
+            sport={plan?.sport}
           />
         )}
       </div>
