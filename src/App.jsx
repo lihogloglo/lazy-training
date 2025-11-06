@@ -948,7 +948,7 @@ const ExerciseInfo = ({ exerciseName }) => {
   );
 };
 
-const TimerComponent = ({ exercise, onComplete }) => {
+const TimerComponent = ({ exercise, onComplete, plan }) => {
   const { sets, duration, rest, description } = exercise.details;
 
   const [currentSet, setCurrentSet] = useState(1);
@@ -1279,7 +1279,7 @@ const SetTrackingComponent = ({ exercise, onComplete, weekNumber = 1, plan }) =>
 };
 
 // Hangboard-specific timer component
-const HangboardComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
+const HangboardComponent = ({ exercise, onComplete, weekNumber = 1, plan }) => {
   if (!exercise.details) {
     return (
       <div className="p-6 bg-gray-800 rounded-lg text-white w-full">
@@ -1492,12 +1492,14 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, day
           <TimerComponent
             exercise={currentExercise}
             onComplete={handleDone}
+            plan={plan}
           />
         ) : currentExercise.type === 'hangboard' ? (
           <HangboardComponent
             exercise={currentExercise}
             onComplete={handleDone}
             weekNumber={dayData.weekNumber || 1}
+            plan={plan}
           />
         ) : currentExercise.type === 'repsSetsWeight' ? (
           <SetTrackingComponent
