@@ -1017,12 +1017,14 @@ const TimerComponent = ({ exercise, onComplete, plan }) => {
       </div>
 
       <div
-        className={`my-4 rounded-full w-48 h-48 flex flex-col items-center justify-center border-8 ${isResting ? 'border-blue-500' : 'border-green-500'}`}
+        className={`my-4 rounded-full w-48 h-48 flex flex-col items-center justify-center border-8 ${
+          isResting ? 'border-blue-500 bg-blue-500 bg-opacity-10' : 'border-green-500 bg-green-500 bg-opacity-10'
+        }`}
       >
-        <div className="text-sm uppercase tracking-widest">
+        <div className={`text-sm uppercase tracking-widest ${isResting ? 'text-blue-400' : 'text-green-400'}`}>
           {isResting ? 'REST' : 'WORK'}
         </div>
-        <div className="text-6xl font-bold">
+        <div className={`text-6xl font-bold ${isResting ? 'text-blue-400' : 'text-green-400'}`}>
           {formatTimer(timeLeft)}
         </div>
       </div>
@@ -1250,11 +1252,24 @@ const SetTrackingComponent = ({ exercise, onComplete, weekNumber = 1, plan }) =>
       {/* Rest Timer */}
       {isResting ? (
         <div className="text-center mb-6">
-          <div className="text-sm uppercase text-gray-400 mb-2">Rest Time</div>
-          <div className="text-5xl font-bold text-blue-400 mb-4">{formatTimer(restTimeLeft)}</div>
+          <div className="text-sm uppercase text-gray-400 mb-4">Rest Between Sets</div>
+
+          {/* Circular rest timer - visually distinct from exercise timers */}
+          <div className="flex justify-center mb-6">
+            <div className="rounded-full w-48 h-48 flex flex-col items-center justify-center border-8 border-blue-500 bg-blue-500 bg-opacity-10">
+              <div className="text-xs uppercase tracking-widest text-blue-400 mb-1">REST</div>
+              <div className="text-6xl font-bold text-blue-400">{restTimeLeft}</div>
+              <div className="text-sm text-gray-400 mt-1">seconds</div>
+            </div>
+          </div>
+
+          <div className="text-sm text-gray-400 mb-4">
+            Next: Set {completedSets + 1} of {sets}
+          </div>
+
           <button
             onClick={skipRest}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg"
+            className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700"
           >
             Skip Rest
           </button>
@@ -1389,13 +1404,13 @@ const HangboardComponent = ({ exercise, onComplete, weekNumber = 1, plan }) => {
 
       <div
         className={`my-4 rounded-full w-48 h-48 flex flex-col items-center justify-center border-8 ${
-          isResting ? 'border-blue-500' : 'border-red-500'
+          isResting ? 'border-blue-500 bg-blue-500 bg-opacity-10' : 'border-red-500 bg-red-500 bg-opacity-10'
         }`}
       >
-        <div className="text-sm uppercase tracking-widest">
+        <div className={`text-sm uppercase tracking-widest ${isResting ? 'text-blue-400' : 'text-red-400'}`}>
           {isResting ? 'REST' : 'HANG'}
         </div>
-        <div className="text-6xl font-bold">
+        <div className={`text-6xl font-bold ${isResting ? 'text-blue-400' : 'text-red-400'}`}>
           {formatTimer(timeLeft)}
         </div>
       </div>
