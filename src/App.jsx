@@ -1049,7 +1049,7 @@ const TimerComponent = ({ exercise, onComplete }) => {
   );
 };
 
-const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber = 1 }) => {
+const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber = 1, plan }) => {
   // Safety check: ensure details exists
   if (!exercise.details) {
     return (
@@ -1499,12 +1499,14 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, day
           />
         ) : currentExercise.type === 'hangboard' ? (
           <HangboardComponent
+            key={currentIndex}
             exercise={currentExercise}
             onComplete={handleDone}
             weekNumber={dayData.weekNumber || 1}
           />
         ) : currentExercise.type === 'repsSetsWeight' ? (
           <SetTrackingComponent
+            key={currentIndex}
             exercise={currentExercise}
             onComplete={handleDone}
             weekNumber={dayData.weekNumber || 1}
@@ -1515,6 +1517,7 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, day
             exercise={currentExercise}
             showSuggested={true}
             weekNumber={dayData.weekNumber || 1}
+            plan={plan}
           />
         )}
       </div>
