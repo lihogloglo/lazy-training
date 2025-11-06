@@ -16,7 +16,10 @@ import {
   addDoc,
   query,
   serverTimestamp,
-  Timestamp
+  Timestamp,
+  deleteDoc,
+  getDocs,
+  writeBatch
 } from 'firebase/firestore';
 import {
   Brain,
@@ -47,7 +50,19 @@ import {
   Upload,
   Sparkles,
   Sliders,
-  TrendingUp
+  TrendingUp,
+  User,
+  Users,
+  UserPlus,
+  Settings,
+  Target,
+  Timer,
+  Hand,
+  Activity,
+  Zap,
+  Mountain,
+  Bike,
+  Waves
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -66,6 +81,70 @@ const formatTimer = (seconds) => {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+/**
+ * Maps exercise names to appropriate Lucide icons
+ * @param {string} exerciseName - Name of the exercise
+ * @param {string} exerciseType - Type of exercise (repsSetsWeight, timer, hangboard)
+ * @returns {React.Component} Lucide icon component
+ */
+const getExerciseIcon = (exerciseName, exerciseType) => {
+  const name = exerciseName.toLowerCase();
+
+  // Hangboard/climbing specific
+  if (name.includes('hangboard') || name.includes('crimp') || name.includes('edge')) {
+    return Hand;
+  }
+
+  // Timer/cardio exercises
+  if (exerciseType === 'timer' || name.includes('run') || name.includes('jog') || name.includes('cardio')) {
+    return Timer;
+  }
+
+  // Swimming
+  if (name.includes('swim')) {
+    return Waves;
+  }
+
+  // Cycling
+  if (name.includes('bike') || name.includes('cycle')) {
+    return Bike;
+  }
+
+  // Climbing/bouldering
+  if (name.includes('climb') || name.includes('boulder')) {
+    return Mountain;
+  }
+
+  // Power/explosive exercises
+  if (name.includes('jump') || name.includes('sprint') || name.includes('explosive')) {
+    return Zap;
+  }
+
+  // Core/abs
+  if (name.includes('plank') || name.includes('core') || name.includes('ab')) {
+    return Activity;
+  }
+
+  // Default to dumbbell for weight training
+  return Dumbbell;
+};
+
+/**
+ * Gets a color class for exercise icons based on sport
+ * @param {string} sport - Sport type (climbing, strength, running, etc.)
+ * @returns {string} Tailwind color class
+ */
+const getExerciseIconColor = (sport) => {
+  const sportColors = {
+    climbing: 'text-orange-400',
+    strength: 'text-blue-400',
+    running: 'text-green-400',
+    cycling: 'text-purple-400',
+    swimming: 'text-cyan-400',
+  };
+  return sportColors[sport] || 'text-gray-400';
 };
 
 // --- Progressive Overload Calculation Engine ---
@@ -924,10 +1003,17 @@ const TimerComponent = ({ exercise, onComplete }) => {
     return () => clearInterval(timerRef.current);
   }, [isActive, isResting, currentSet, sets, duration, rest, onComplete]);
 
+  const ExerciseIcon = getExerciseIcon(exercise.name, exercise.type);
+
   return (
     <div className="flex flex-col items-center justify-center p-6 bg-gray-800 rounded-lg text-white text-center relative">
       <ExerciseInfo exerciseName={exercise.name} />
-      <div className="mb-2 text-lg font-semibold">{exercise.name}</div>
+      <div className="mb-2 flex items-center justify-center gap-2">
+        <div className="p-2 bg-gray-700 rounded-lg">
+          <ExerciseIcon size={20} className={getExerciseIconColor(plan?.sport)} />
+        </div>
+        <div className="text-lg font-semibold">{exercise.name}</div>
+      </div>
       {description && <div className="mb-4 text-sm text-gray-400">{description}</div>}
 
       <div className="text-xl font-medium mb-4">
@@ -979,10 +1065,17 @@ const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber =
   // Show baseline vs suggested comparison
   const baseline = exercise.baselineDetails || exercise.details;
 
+  const ExerciseIcon = getExerciseIcon(exercise.name, exercise.type);
+
   return (
     <div className="p-6 bg-gray-800 rounded-lg text-white w-full relative">
       <ExerciseInfo exerciseName={exercise.name} />
-      <div className="mb-4 text-2xl font-bold text-center">{exercise.name}</div>
+      <div className="mb-4 flex items-center justify-center gap-3">
+        <div className="p-2 bg-gray-700 rounded-lg">
+          <ExerciseIcon size={24} className={getExerciseIconColor(plan?.sport)} />
+        </div>
+        <div className="text-2xl font-bold">{exercise.name}</div>
+      </div>
       {description && <div className="mb-4 text-sm text-gray-300 text-center">{description}</div>}
 
       {showSuggested && weekNumber > 1 && (
@@ -1087,10 +1180,17 @@ const SetTrackingComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
     setRestTimeLeft(0);
   };
 
+  const ExerciseIcon = getExerciseIcon(exercise.name, exercise.type);
+
   return (
     <div className="p-6 bg-gray-800 rounded-lg text-white w-full">
       <ExerciseInfo exerciseName={exercise.name} />
-      <div className="mb-4 text-2xl font-bold text-center">{exercise.name}</div>
+      <div className="mb-4 flex items-center justify-center gap-3">
+        <div className="p-3 bg-gray-700 rounded-lg">
+          <ExerciseIcon size={28} className={getExerciseIconColor(plan?.sport)} />
+        </div>
+        <div className="text-2xl font-bold">{exercise.name}</div>
+      </div>
       {description && <div className="mb-4 text-sm text-gray-300 text-center">{description}</div>}
 
       {weekNumber > 1 && (
@@ -1244,10 +1344,17 @@ const HangboardComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
     return () => clearInterval(timerRef.current);
   }, [isActive, isResting, currentSet, sets, duration, rest, onComplete]);
 
+  const ExerciseIcon = getExerciseIcon(exercise.name, exercise.type);
+
   return (
     <div className="flex flex-col items-center justify-center p-6 bg-gray-800 rounded-lg text-white text-center">
       <ExerciseInfo exerciseName={exercise.name} />
-      <div className="mb-2 text-lg font-semibold">{exercise.name}</div>
+      <div className="mb-2 flex items-center justify-center gap-2">
+        <div className="p-2 bg-gray-700 rounded-lg">
+          <ExerciseIcon size={20} className={getExerciseIconColor(plan?.sport)} />
+        </div>
+        <div className="text-lg font-semibold">{exercise.name}</div>
+      </div>
       {description && <div className="mb-4 text-sm text-gray-400">{description}</div>}
 
       {weekNumber > 1 && (
@@ -1317,7 +1424,7 @@ const HangboardComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
   );
 };
 
-const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboard }) => {
+const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, dayData, showDashboard }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isCompleting, setIsCompleting] = useState(false);
 
@@ -1346,7 +1453,8 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboa
         weekNumber: currentPlanWeek,
         day: dayData.day,
         focus: dayData.focus,
-        exercises: dayData.exercises.map(e => e.name)
+        exercises: dayData.exercises.map(e => e.name),
+        profileId: activeProfileId
       });
       showDashboard();
     } catch (error) {
@@ -1510,7 +1618,8 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
         weekNumber: currentPlanWeek,
         day: todayWorkoutData.day,
         focus: todayWorkoutData.focus,
-        exercises: todayWorkoutData.exercises.map(e => e.name)
+        exercises: todayWorkoutData.exercises.map(e => e.name),
+        profileId: activeProfileId
       });
     } catch (error) {
       console.error("Error logging workout:", error);
@@ -1646,7 +1755,7 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
     </div>
   );
 };
-const CreatePlanView = ({ db, auth, userId, appId, showDashboard, defaultView = 'ai' }) => {
+const CreatePlanView = ({ db, auth, userId, appId, activeProfileId, showDashboard, defaultView = 'ai' }) => {
   const [goal, setGoal] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -1668,7 +1777,7 @@ const CreatePlanView = ({ db, auth, userId, appId, showDashboard, defaultView = 
       createdAt: serverTimestamp() // Add the creation timestamp
     };
 
-    const planDocRef = doc(db, 'artifacts', appId, 'users', userId, 'plan', 'mainPlan');
+    const planDocRef = doc(db, 'artifacts', appId, 'users', userId, 'profiles', activeProfileId, 'plan', 'mainPlan');
     await setDoc(planDocRef, planWithTimestamp);
     
     // Clear history of the old plan
@@ -1976,7 +2085,7 @@ const PlanView = ({ plan, showCreatePlan, showEditPlan }) => {
  * EditPlanView
  * Allows editing of the current training plan
  */
-const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
+const EditPlanView = ({ db, userId, appId, plan, activeProfileId, showPlanView }) => {
   const [editedPlan, setEditedPlan] = useState(JSON.parse(JSON.stringify(plan))); // Deep copy
   const [selectedDay, setSelectedDay] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
@@ -1988,7 +2097,7 @@ const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const planDocRef = doc(db, 'artifacts', appId, 'users', userId, 'plan', 'mainPlan');
+      const planDocRef = doc(db, 'artifacts', appId, 'users', userId, 'profiles', activeProfileId, 'plan', 'mainPlan');
       await setDoc(planDocRef, {
         ...editedPlan,
         createdAt: plan.createdAt // Preserve original creation date
@@ -2404,6 +2513,363 @@ const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
 
 
 /**
+ * ProfilesView Component
+ * Manage user profiles - create, switch, edit, delete
+ */
+const ProfilesView = ({ db, userId, appId, profiles, activeProfileId, showDashboard }) => {
+  const [isCreating, setIsCreating] = useState(false);
+  const [newProfileName, setNewProfileName] = useState('');
+  const [newProfileSport, setNewProfileSport] = useState('strength');
+  const [editingProfile, setEditingProfile] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const sportOptions = [
+    { value: 'strength', label: 'Strength Training', icon: Dumbbell },
+    { value: 'climbing', label: 'Climbing', icon: Mountain },
+    { value: 'running', label: 'Running', icon: Activity },
+    { value: 'cycling', label: 'Cycling', icon: Bike },
+    { value: 'swimming', label: 'Swimming', icon: Waves },
+    { value: 'general', label: 'General Fitness', icon: Target }
+  ];
+
+  const createProfile = async () => {
+    if (!newProfileName.trim()) {
+      alert('Please enter a profile name');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const profileId = `profile_${Date.now()}`;
+
+      // Create profile metadata
+      const profileRef = doc(db, 'artifacts', appId, 'users', userId, 'profiles', profileId);
+      await setDoc(profileRef, {
+        name: newProfileName,
+        sport: newProfileSport,
+        createdAt: serverTimestamp(),
+        lastUsed: serverTimestamp()
+      });
+
+      // Set as active profile
+      const activeProfileRef = doc(db, 'artifacts', appId, 'users', userId, 'activeProfile', 'current');
+      await setDoc(activeProfileRef, { profileId });
+
+      setNewProfileName('');
+      setNewProfileSport('strength');
+      setIsCreating(false);
+    } catch (error) {
+      console.error('Error creating profile:', error);
+      alert('Failed to create profile');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const switchProfile = async (profileId) => {
+    setIsLoading(true);
+    try {
+      const activeProfileRef = doc(db, 'artifacts', appId, 'users', userId, 'activeProfile', 'current');
+      await setDoc(activeProfileRef, { profileId });
+
+      // Update lastUsed timestamp
+      const profileRef = doc(db, 'artifacts', appId, 'users', userId, 'profiles', profileId);
+      await setDoc(profileRef, { lastUsed: serverTimestamp() }, { merge: true });
+    } catch (error) {
+      console.error('Error switching profile:', error);
+      alert('Failed to switch profile');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const startEditProfile = (profile) => {
+    setEditingProfile(profile.id);
+    setEditName(profile.name);
+  };
+
+  const saveEditProfile = async (profileId) => {
+    if (!editName.trim()) {
+      alert('Please enter a profile name');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const profileRef = doc(db, 'artifacts', appId, 'users', userId, 'profiles', profileId);
+      await setDoc(profileRef, { name: editName }, { merge: true });
+
+      setEditingProfile(null);
+      setEditName('');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      alert('Failed to update profile');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteProfile = async (profileId) => {
+    if (profiles.length === 1) {
+      alert('Cannot delete your only profile');
+      return;
+    }
+
+    if (!confirm('Are you sure you want to delete this profile? This will permanently delete the training plan and history associated with it.')) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Delete profile plan
+      const planRef = doc(db, 'artifacts', appId, 'users', userId, 'profiles', profileId, 'plan', 'mainPlan');
+      await deleteDoc(planRef);
+
+      // Delete profile metadata
+      const profileRef = doc(db, 'artifacts', appId, 'users', userId, 'profiles', profileId);
+      await deleteDoc(profileRef);
+
+      // If this was the active profile, switch to another one
+      if (activeProfileId === profileId) {
+        const remainingProfile = profiles.find(p => p.id !== profileId);
+        if (remainingProfile) {
+          await switchProfile(remainingProfile.id);
+        }
+      }
+
+      // Note: History entries with this profileId will remain but won't be displayed
+    } catch (error) {
+      console.error('Error deleting profile:', error);
+      alert('Failed to delete profile');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getSportIcon = (sport) => {
+    const option = sportOptions.find(opt => opt.value === sport);
+    return option ? option.icon : Target;
+  };
+
+  return (
+    <div className="h-full overflow-auto pb-20">
+      {/* Header */}
+      <div className="sticky top-0 bg-gray-900 border-b border-gray-800 p-4 z-10">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button onClick={showDashboard} className="p-2 hover:bg-gray-800 rounded-lg">
+              <ChevronLeft size={20} />
+            </button>
+            <Users size={24} className="text-purple-400" />
+            <h1 className="text-xl font-bold">Training Profiles</h1>
+          </div>
+          <button
+            onClick={() => setIsCreating(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium"
+          >
+            <UserPlus size={18} />
+            New Profile
+          </button>
+        </div>
+      </div>
+
+      <div className="p-4">
+        {/* Create Profile Modal */}
+        {isCreating && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold">Create New Profile</h2>
+                <button onClick={() => setIsCreating(false)} className="p-1 hover:bg-gray-700 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">Profile Name</label>
+                  <input
+                    type="text"
+                    value={newProfileName}
+                    onChange={(e) => setNewProfileName(e.target.value)}
+                    placeholder="e.g., Powerlifting, Skiing, Swimming"
+                    className="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">Sport Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {sportOptions.map(option => {
+                      const Icon = option.icon;
+                      return (
+                        <button
+                          key={option.value}
+                          onClick={() => setNewProfileSport(option.value)}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${
+                            newProfileSport === option.value
+                              ? 'bg-purple-600 border-purple-500'
+                              : 'bg-gray-900 border-gray-700 hover:border-gray-600'
+                          }`}
+                        >
+                          <Icon size={18} />
+                          <span className="text-sm">{option.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 mt-6">
+                  <button
+                    onClick={() => setIsCreating(false)}
+                    className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={createProfile}
+                    disabled={isLoading || !newProfileName.trim()}
+                    className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoading ? 'Creating...' : 'Create Profile'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Profiles List */}
+        {profiles.length === 0 ? (
+          <div className="text-center py-12">
+            <Users size={48} className="mx-auto text-gray-600 mb-4" />
+            <p className="text-gray-400 mb-4">No profiles yet</p>
+            <button
+              onClick={() => setIsCreating(true)}
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-medium"
+            >
+              Create Your First Profile
+            </button>
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {profiles.map(profile => {
+              const SportIcon = getSportIcon(profile.sport);
+              const isActive = profile.id === activeProfileId;
+
+              return (
+                <div
+                  key={profile.id}
+                  className={`bg-gray-800 rounded-lg p-4 border-2 ${
+                    isActive ? 'border-purple-500' : 'border-gray-700'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className={`p-3 rounded-lg ${isActive ? 'bg-purple-600' : 'bg-gray-700'}`}>
+                        <SportIcon size={24} />
+                      </div>
+                      <div className="flex-1">
+                        {editingProfile === profile.id ? (
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="w-full px-2 py-1 bg-gray-900 border border-gray-700 rounded focus:outline-none focus:border-purple-500"
+                            autoFocus
+                          />
+                        ) : (
+                          <>
+                            <h3 className="text-lg font-semibold">{profile.name}</h3>
+                            <p className="text-sm text-gray-400 capitalize">{profile.sport}</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {editingProfile === profile.id ? (
+                        <>
+                          <button
+                            onClick={() => saveEditProfile(profile.id)}
+                            disabled={isLoading}
+                            className="p-2 bg-green-600 hover:bg-green-700 rounded-lg disabled:opacity-50"
+                          >
+                            <Save size={18} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingProfile(null);
+                              setEditName('');
+                            }}
+                            className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+                          >
+                            <X size={18} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          {!isActive && (
+                            <button
+                              onClick={() => switchProfile(profile.id)}
+                              disabled={isLoading}
+                              className="px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium disabled:opacity-50"
+                            >
+                              Switch
+                            </button>
+                          )}
+                          <button
+                            onClick={() => startEditProfile(profile)}
+                            className="p-2 hover:bg-gray-700 rounded-lg"
+                          >
+                            <Edit3 size={18} />
+                          </button>
+                          <button
+                            onClick={() => deleteProfile(profile.id)}
+                            disabled={profiles.length === 1}
+                            className="p-2 hover:bg-red-600 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {isActive && (
+                    <div className="mt-3 px-3 py-1.5 bg-purple-600/20 border border-purple-500/30 rounded-lg inline-flex items-center gap-2">
+                      <CheckCircle size={16} className="text-purple-400" />
+                      <span className="text-sm text-purple-400 font-medium">Active Profile</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Info Section */}
+        <div className="mt-8 p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+          <div className="flex gap-3">
+            <Info size={20} className="text-blue-400 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-gray-300">
+              <p className="font-medium text-blue-400 mb-1">About Profiles</p>
+              <p>
+                Profiles let you maintain separate training plans and history for different sports or goals.
+                Switch between profiles anytime without losing your progress.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+/**
  * Main App Component
  * Handles auth, state, and routing.
  */
@@ -2415,12 +2881,17 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
 
   // App state
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'createPlan', 'activeWorkout', 'history', 'plan', 'editPlan'
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'createPlan', 'activeWorkout', 'history', 'plan', 'editPlan', 'profiles'
   const [plan, setPlan] = useState(null);
   const [history, setHistory] = useState([]);
   const [isLoadingPlan, setIsLoadingPlan] = useState(true);
   const [createPlanDefaultView, setCreatePlanDefaultView] = useState('ai');
-  
+
+  // Profile state
+  const [profiles, setProfiles] = useState([]);
+  const [activeProfileId, setActiveProfileId] = useState(null);
+  const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
+
   // Data for active views
   const [activeWorkoutDay, setActiveWorkoutDay] = useState(null);
 
@@ -2460,28 +2931,137 @@ export default function App() {
     }
   }, []);
 
-  // --- Firestore Data Listeners ---
+  // --- Profile Migration: Convert legacy single plan to profile-based structure ---
   useEffect(() => {
     if (!isAuthReady || !db || !userId) return;
 
+    const migrateToProfiles = async () => {
+      try {
+        // Check if profiles exist
+        const profilesColRef = collection(db, 'artifacts', appId, 'users', userId, 'profiles');
+        const profilesSnap = await getDocs(profilesColRef);
+
+        if (profilesSnap.empty) {
+          // No profiles exist, check if there's a legacy plan to migrate
+          const legacyPlanRef = doc(db, 'artifacts', appId, 'users', userId, 'plan', 'mainPlan');
+          const legacyPlanSnap = await getDoc(legacyPlanRef);
+
+          if (legacyPlanSnap.exists()) {
+            // Migrate legacy plan to first profile
+            const legacyPlan = legacyPlanSnap.data();
+            const profileId = `profile_${Date.now()}`;
+
+            // Create profile metadata
+            const profileMetaRef = doc(db, 'artifacts', appId, 'users', userId, 'profiles', profileId);
+            await setDoc(profileMetaRef, {
+              name: legacyPlan.planName || 'My Training',
+              sport: legacyPlan.sport || 'general',
+              createdAt: legacyPlan.createdAt || serverTimestamp(),
+              lastUsed: serverTimestamp()
+            });
+
+            // Move plan to profile's plan subcollection
+            const profilePlanRef = doc(db, 'artifacts', appId, 'users', userId, 'profiles', profileId, 'plan', 'mainPlan');
+            await setDoc(profilePlanRef, legacyPlan);
+
+            // Set as active profile
+            const activeProfileRef = doc(db, 'artifacts', appId, 'users', userId, 'activeProfile', 'current');
+            await setDoc(activeProfileRef, { profileId });
+
+            // Update history entries with profileId
+            const historyColRef = collection(db, 'artifacts', appId, 'users', userId, 'history');
+            const historySnap = await getDocs(historyColRef);
+            const batch = writeBatch(db);
+
+            historySnap.forEach((historyDoc) => {
+              if (!historyDoc.data().profileId) {
+                batch.update(historyDoc.ref, { profileId });
+              }
+            });
+
+            await batch.commit();
+
+            console.log('Successfully migrated legacy plan to profile:', profileId);
+          }
+        }
+      } catch (error) {
+        console.error('Error migrating to profiles:', error);
+      }
+    };
+
+    migrateToProfiles();
+  }, [isAuthReady, db, userId, appId]);
+
+  // --- Firestore Data Listeners: Profiles ---
+  useEffect(() => {
+    if (!isAuthReady || !db || !userId) return;
+
+    setIsLoadingProfiles(true);
+
+    // Listener for profiles collection
+    const profilesColRef = collection(db, 'artifacts', appId, 'users', userId, 'profiles');
+    const unsubscribeProfiles = onSnapshot(profilesColRef, (querySnapshot) => {
+      const profilesData = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        let createdAtDate;
+        if (data.createdAt && data.createdAt instanceof Timestamp) {
+          createdAtDate = data.createdAt.toDate();
+        } else {
+          createdAtDate = new Date();
+        }
+        profilesData.push({ ...data, id: doc.id, createdAt: createdAtDate });
+      });
+      setProfiles(profilesData);
+      setIsLoadingProfiles(false);
+    }, (error) => {
+      console.error("Error listening to profiles:", error);
+      setIsLoadingProfiles(false);
+    });
+
+    // Listener for active profile
+    const activeProfileRef = doc(db, 'artifacts', appId, 'users', userId, 'activeProfile', 'current');
+    const unsubscribeActiveProfile = onSnapshot(activeProfileRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setActiveProfileId(docSnap.data().profileId);
+      } else {
+        setActiveProfileId(null);
+      }
+    }, (error) => {
+      console.error("Error listening to active profile:", error);
+    });
+
+    return () => {
+      unsubscribeProfiles();
+      unsubscribeActiveProfile();
+    };
+  }, [isAuthReady, db, userId, appId]);
+
+  // --- Firestore Data Listeners: Plan and History (based on active profile) ---
+  useEffect(() => {
+    if (!isAuthReady || !db || !userId || !activeProfileId) {
+      setPlan(null);
+      setHistory([]);
+      setIsLoadingPlan(false);
+      return;
+    }
+
     setIsLoadingPlan(true);
-    
-    // Listener for the user's plan
-    const planDocRef = doc(db, 'artifacts', appId, 'users', userId, 'plan', 'mainPlan');
+
+    // Listener for the active profile's plan
+    const planDocRef = doc(db, 'artifacts', appId, 'users', userId, 'profiles', activeProfileId, 'plan', 'mainPlan');
     const unsubscribePlan = onSnapshot(planDocRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         let createdAtDate;
-        // FIX: Always convert Timestamp to JS Date
         if (data.createdAt && data.createdAt instanceof Timestamp) {
           createdAtDate = data.createdAt.toDate();
         } else {
-          // Fallback for pending writes or missing data
-          createdAtDate = new Date(); 
+          createdAtDate = new Date();
         }
         setPlan({ ...data, id: docSnap.id, createdAt: createdAtDate });
       } else {
-        setPlan(null); // No plan exists
+        setPlan(null);
       }
       setIsLoadingPlan(false);
     }, (error) => {
@@ -2489,21 +3069,20 @@ export default function App() {
       setIsLoadingPlan(false);
     });
 
-    // Listener for the user's history
+    // Listener for the active profile's history
     const historyColRef = collection(db, 'artifacts', appId, 'users', userId, 'history');
-    const q = query(historyColRef); // Can add orderBy('completedAt', 'desc') later
-    
+    const q = query(historyColRef);
+
     const unsubscribeHistory = onSnapshot(q, (querySnapshot) => {
       const historyData = [];
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-         // FIX: Always convert Timestamp to JS Date
-         if (data.completedAt && data.completedAt instanceof Timestamp) {
-           historyData.push({ ...data, id: doc.id, completedAt: data.completedAt.toDate() });
-         }
+        // Only include history for the active profile
+        if (data.profileId === activeProfileId && data.completedAt && data.completedAt instanceof Timestamp) {
+          historyData.push({ ...data, id: doc.id, completedAt: data.completedAt.toDate() });
+        }
       });
-      // Sort in-memory to avoid Firestore index requirements
-      historyData.sort((a, b) => b.completedAt - a.completedAt); // Sort dates directly
+      historyData.sort((a, b) => b.completedAt - a.completedAt);
       setHistory(historyData);
     }, (error) => {
       console.error("Error listening to history:", error);
@@ -2513,19 +3092,19 @@ export default function App() {
       unsubscribePlan();
       unsubscribeHistory();
     };
-  }, [isAuthReady, db, userId, appId]);
+  }, [isAuthReady, db, userId, appId, activeProfileId]);
 
   // --- Navigation Handlers ---
   const showDashboard = () => {
     setCurrentView('dashboard');
     setActiveWorkoutDay(null);
   };
-  
+
   const showCreatePlan = (defaultView = 'ai') => {
     setCreatePlanDefaultView(defaultView);
     setCurrentView('createPlan');
   };
-  
+
   const showHistory = () => {
     setCurrentView('history');
   };
@@ -2536,6 +3115,10 @@ export default function App() {
 
   const showEditPlan = () => {
     setCurrentView('editPlan');
+  };
+
+  const showProfiles = () => {
+    setCurrentView('profiles');
   };
 
   const startWorkout = (dayData) => {
@@ -2557,28 +3140,30 @@ export default function App() {
     
     switch (currentView) {
       case 'createPlan':
-        return <CreatePlanView 
-                  db={db} 
-                  auth={auth} 
-                  userId={userId} 
-                  appId={appId} 
+        return <CreatePlanView
+                  db={db}
+                  auth={auth}
+                  userId={userId}
+                  appId={appId}
+                  activeProfileId={activeProfileId}
                   showDashboard={showDashboard}
                   defaultView={createPlanDefaultView}
                 />;
       case 'activeWorkout':
-        return <ActiveWorkoutView 
-                  db={db} 
-                  auth={auth} 
-                  userId={userId} 
+        return <ActiveWorkoutView
+                  db={db}
+                  auth={auth}
+                  userId={userId}
                   appId={appId}
                   plan={plan}
-                  dayData={activeWorkoutDay} 
-                  showDashboard={showDashboard} 
+                  activeProfileId={activeProfileId}
+                  dayData={activeWorkoutDay}
+                  showDashboard={showDashboard}
                 />;
       case 'history':
-        return <HistoryView 
-                  history={history} 
-                  plan={plan} 
+        return <HistoryView
+                  history={history}
+                  plan={plan}
                 />;
       case 'plan':
         return <PlanView
@@ -2592,7 +3177,17 @@ export default function App() {
                   userId={userId}
                   appId={appId}
                   plan={plan}
+                  activeProfileId={activeProfileId}
                   showPlanView={showPlan}
+                />;
+      case 'profiles':
+        return <ProfilesView
+                  db={db}
+                  userId={userId}
+                  appId={appId}
+                  profiles={profiles}
+                  activeProfileId={activeProfileId}
+                  showDashboard={showDashboard}
                 />;
       case 'dashboard':
       default:
@@ -2641,6 +3236,13 @@ export default function App() {
             >
               <History size={24} />
               <span className="text-xs">History</span>
+            </button>
+            <button
+              onClick={showProfiles}
+              className={`flex-1 flex flex-col items-center p-3 ${currentView === 'profiles' ? 'text-indigo-400' : 'text-gray-500'}`}
+            >
+              <Users size={24} />
+              <span className="text-xs">Profiles</span>
             </button>
           </nav>
         )}
