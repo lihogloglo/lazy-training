@@ -964,6 +964,16 @@ const TimerComponent = ({ exercise, onComplete }) => {
 };
 
 const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber = 1 }) => {
+  // Safety check: ensure details exists
+  if (!exercise.details) {
+    return (
+      <div className="p-6 bg-gray-800 rounded-lg text-white w-full relative">
+        <div className="mb-4 text-2xl font-bold text-center">{exercise.name}</div>
+        <div className="text-center text-gray-400">Exercise details not available</div>
+      </div>
+    );
+  }
+
   const { sets, reps, weight, rest, description } = exercise.details;
 
   // Show baseline vs suggested comparison
@@ -1014,6 +1024,295 @@ const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber =
           <div className="text-2xl font-bold">{formatTimer(rest)}</div>
         </div>
       )}
+    </div>
+  );
+};
+
+// Component for active set tracking during workout
+const SetTrackingComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
+  if (!exercise.details) {
+    return (
+      <div className="p-6 bg-gray-800 rounded-lg text-white w-full">
+        <div className="mb-4 text-2xl font-bold text-center">{exercise.name}</div>
+        <div className="text-center text-gray-400">Exercise details not available</div>
+      </div>
+    );
+  }
+
+  const { sets, reps, weight, rest, description } = exercise.details;
+  const baseline = exercise.baselineDetails || exercise.details;
+
+  const [completedSets, setCompletedSets] = useState(0);
+  const [isResting, setIsResting] = useState(false);
+  const [restTimeLeft, setRestTimeLeft] = useState(0);
+  const timerRef = useRef(null);
+
+  const handleSetComplete = () => {
+    const newCompletedSets = completedSets + 1;
+    setCompletedSets(newCompletedSets);
+
+    if (newCompletedSets >= sets) {
+      // All sets completed
+      if (timerRef.current) clearInterval(timerRef.current);
+      onComplete();
+    } else if (rest > 0) {
+      // Start rest timer
+      setIsResting(true);
+      setRestTimeLeft(rest);
+    }
+  };
+
+  useEffect(() => {
+    if (isResting && rest > 0) {
+      timerRef.current = setInterval(() => {
+        setRestTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            setIsResting(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isResting, rest]);
+
+  const skipRest = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setIsResting(false);
+    setRestTimeLeft(0);
+  };
+
+  return (
+    <div className="p-6 bg-gray-800 rounded-lg text-white w-full">
+      <ExerciseInfo exerciseName={exercise.name} />
+      <div className="mb-4 text-2xl font-bold text-center">{exercise.name}</div>
+      {description && <div className="mb-4 text-sm text-gray-300 text-center">{description}</div>}
+
+      {weekNumber > 1 && (
+        <div className="mb-4 text-center">
+          <div className="inline-flex items-center gap-2 bg-green-900 bg-opacity-30 px-3 py-1 rounded-full">
+            <TrendingUp size={16} className="text-green-400" />
+            <span className="text-sm text-green-400">Week {weekNumber} Progression</span>
+          </div>
+        </div>
+      )}
+
+      {/* Target numbers */}
+      <div className="grid grid-cols-3 gap-4 text-center mb-6">
+        <div>
+          <div className="text-sm uppercase text-gray-400">Sets</div>
+          <div className="text-3xl font-bold">{sets}</div>
+          {weekNumber > 1 && sets !== baseline.sets && (
+            <div className="text-xs text-green-400 mt-1">+{sets - baseline.sets}</div>
+          )}
+        </div>
+        <div>
+          <div className="text-sm uppercase text-gray-400">Reps</div>
+          <div className="text-3xl font-bold">{reps}</div>
+          {weekNumber > 1 && reps !== baseline.reps && (
+            <div className="text-xs text-green-400 mt-1">+{reps - baseline.reps}</div>
+          )}
+        </div>
+        <div>
+          <div className="text-sm uppercase text-gray-400">Weight</div>
+          <div className="text-3xl font-bold">{weight}</div>
+          {weekNumber > 1 && weight !== baseline.weight && (
+            <div className="text-xs text-green-400 mt-1">+{weight - baseline.weight}</div>
+          )}
+        </div>
+      </div>
+
+      {/* Set Progress */}
+      <div className="mb-6">
+        <div className="text-center mb-3">
+          <span className="text-4xl font-bold text-indigo-400">{completedSets}</span>
+          <span className="text-2xl text-gray-400"> / {sets}</span>
+          <div className="text-sm text-gray-400 mt-1">Sets Completed</div>
+        </div>
+
+        <div className="flex gap-2 justify-center flex-wrap">
+          {Array.from({ length: sets }).map((_, idx) => (
+            <div
+              key={idx}
+              className={`w-12 h-12 rounded-full flex items-center justify-center font-bold ${
+                idx < completedSets
+                  ? 'bg-green-500 text-white'
+                  : 'bg-gray-700 text-gray-400'
+              }`}
+            >
+              {idx + 1}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Rest Timer */}
+      {isResting ? (
+        <div className="text-center mb-6">
+          <div className="text-sm uppercase text-gray-400 mb-2">Rest Time</div>
+          <div className="text-5xl font-bold text-blue-400 mb-4">{formatTimer(restTimeLeft)}</div>
+          <button
+            onClick={skipRest}
+            className="px-4 py-2 bg-gray-600 text-white rounded-lg"
+          >
+            Skip Rest
+          </button>
+        </div>
+      ) : completedSets < sets && (
+        <button
+          onClick={handleSetComplete}
+          className="w-full py-4 bg-indigo-600 text-white rounded-lg text-lg font-semibold flex items-center justify-center gap-2"
+        >
+          <CheckCircle size={24} />
+          Set {completedSets + 1} Done
+        </button>
+      )}
+
+      {rest > 0 && !isResting && (
+        <div className="mt-4 text-center text-sm text-gray-400">
+          Rest {formatTimer(rest)} between sets
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Hangboard-specific timer component
+const HangboardComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
+  if (!exercise.details) {
+    return (
+      <div className="p-6 bg-gray-800 rounded-lg text-white w-full">
+        <div className="mb-4 text-2xl font-bold text-center">{exercise.name}</div>
+        <div className="text-center text-gray-400">Exercise details not available</div>
+      </div>
+    );
+  }
+
+  const { sets, duration, rest, description } = exercise.details;
+  const baseline = exercise.baselineDetails || exercise.details;
+
+  const [currentSet, setCurrentSet] = useState(1);
+  const [isResting, setIsResting] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(duration);
+  const [isActive, setIsActive] = useState(false);
+
+  const timerRef = useRef(null);
+
+  const startTimer = () => setIsActive(true);
+  const pauseTimer = () => setIsActive(false);
+
+  const resetTimer = () => {
+    pauseTimer();
+    setCurrentSet(1);
+    setIsResting(false);
+    setTimeLeft(duration);
+  };
+
+  useEffect(() => {
+    if (isActive) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prevTime) => {
+          if (prevTime <= 1) {
+            if (!isResting) {
+              if (currentSet < sets) {
+                setIsResting(true);
+                return rest;
+              } else {
+                clearInterval(timerRef.current);
+                setIsActive(false);
+                onComplete();
+                return 0;
+              }
+            } else {
+              setIsResting(false);
+              setCurrentSet((prevSet) => prevSet + 1);
+              return duration;
+            }
+          }
+          return prevTime - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+
+    return () => clearInterval(timerRef.current);
+  }, [isActive, isResting, currentSet, sets, duration, rest, onComplete]);
+
+  return (
+    <div className="flex flex-col items-center justify-center p-6 bg-gray-800 rounded-lg text-white text-center">
+      <ExerciseInfo exerciseName={exercise.name} />
+      <div className="mb-2 text-lg font-semibold">{exercise.name}</div>
+      {description && <div className="mb-4 text-sm text-gray-400">{description}</div>}
+
+      {weekNumber > 1 && (
+        <div className="mb-4">
+          <div className="inline-flex items-center gap-2 bg-green-900 bg-opacity-30 px-3 py-1 rounded-full">
+            <TrendingUp size={16} className="text-green-400" />
+            <span className="text-sm text-green-400">Week {weekNumber} Progression</span>
+          </div>
+        </div>
+      )}
+
+      <div className="mb-4 flex gap-6 text-center">
+        <div>
+          <div className="text-sm uppercase text-gray-400">Hang Time</div>
+          <div className="text-2xl font-bold">{duration}s</div>
+          {weekNumber > 1 && duration !== baseline.duration && (
+            <div className="text-xs text-green-400 mt-1">+{duration - baseline.duration}s</div>
+          )}
+        </div>
+        <div>
+          <div className="text-sm uppercase text-gray-400">Rest</div>
+          <div className="text-2xl font-bold">{rest}s</div>
+        </div>
+        <div>
+          <div className="text-sm uppercase text-gray-400">Sets</div>
+          <div className="text-2xl font-bold">{sets}</div>
+          {weekNumber > 1 && sets !== baseline.sets && (
+            <div className="text-xs text-green-400 mt-1">+{sets - baseline.sets}</div>
+          )}
+        </div>
+      </div>
+
+      <div className="text-xl font-medium mb-4">
+        Set {currentSet} / {sets}
+      </div>
+
+      <div
+        className={`my-4 rounded-full w-48 h-48 flex flex-col items-center justify-center border-8 ${
+          isResting ? 'border-blue-500' : 'border-red-500'
+        }`}
+      >
+        <div className="text-sm uppercase tracking-widest">
+          {isResting ? 'REST' : 'HANG'}
+        </div>
+        <div className="text-6xl font-bold">
+          {formatTimer(timeLeft)}
+        </div>
+      </div>
+
+      <div className="flex gap-4">
+        <button
+          onClick={isActive ? pauseTimer : startTimer}
+          className={`px-6 py-3 rounded-full text-white font-semibold text-lg ${
+            isActive ? 'bg-yellow-500' : 'bg-green-500'
+          }`}
+        >
+          {isActive ? <Pause size={24} /> : <Play size={24} />}
+        </button>
+        <button
+          onClick={resetTimer}
+          className="px-6 py-3 rounded-full bg-gray-600 text-white font-semibold"
+        >
+          <RotateCw size={24} />
+        </button>
+      </div>
     </div>
   );
 };
@@ -1090,6 +1389,18 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboa
             exercise={currentExercise}
             onComplete={handleDone}
           />
+        ) : currentExercise.type === 'hangboard' ? (
+          <HangboardComponent
+            exercise={currentExercise}
+            onComplete={handleDone}
+            weekNumber={dayData.weekNumber || 1}
+          />
+        ) : currentExercise.type === 'repsSetsWeight' ? (
+          <SetTrackingComponent
+            exercise={currentExercise}
+            onComplete={handleDone}
+            weekNumber={dayData.weekNumber || 1}
+          />
         ) : (
           <RepsSetsWeightComponent
             exercise={currentExercise}
@@ -1100,7 +1411,7 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, dayData, showDashboa
       </div>
 
       <div className="mt-8 space-y-3">
-        {currentExercise.type !== 'timer' && (
+        {currentExercise.type !== 'timer' && currentExercise.type !== 'hangboard' && currentExercise.type !== 'repsSetsWeight' && (
            <button
               onClick={handleDone}
               disabled={isCompleting}
@@ -1152,14 +1463,14 @@ const DashboardView = ({ db, auth, userId, appId, plan, history, showCreatePlan,
         ...day,
         exercises: day.exercises.map(ex => ({
           ...ex,
-          details: ex.type === 'timer' || ex.type === 'repsSetsWeight'
+          details: (ex.details || ex.baselineDetails)
             ? applyProgression(
                 ex.baselineDetails || ex.details,
                 currentPlanWeek,
                 plan.progressionSettings || { strategy: 'linear', increments: {}, userMultiplier: 1.0 },
                 adaptiveFactor
               )
-            : ex.details
+            : undefined
         }))
       }))
     };
@@ -1737,6 +2048,8 @@ const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
     // Set default details based on type
     if (newType === 'timer') {
       exercise.details = { sets: 1, duration: 600, rest: 0, description: "Exercise description" };
+    } else if (newType === 'hangboard') {
+      exercise.details = { sets: 5, duration: 10, rest: 30, description: "Hangboard exercise" };
     } else {
       exercise.details = { sets: 3, reps: "10", weight: "Bodyweight", rest: 60 };
     }
@@ -1771,6 +2084,123 @@ const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
           onChange={(e) => setEditedPlan({ ...editedPlan, planName: e.target.value })}
           className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
         />
+      </div>
+
+      {/* Progression Settings */}
+      <div className="bg-gray-800 rounded-lg p-4 mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <TrendingUp size={18} className="text-green-400" />
+          <h3 className="text-lg font-semibold">Weekly Progression Increments</h3>
+        </div>
+        <p className="text-xs text-gray-400 mb-4">
+          Configure how much each exercise progresses each week. These increments are applied to your baseline (Week 1) values.
+        </p>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">
+              Sets Increment
+              <span className="text-gray-500 ml-1">(per week)</span>
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={editedPlan.progressionSettings?.increments?.sets || 0}
+              onChange={(e) => setEditedPlan({
+                ...editedPlan,
+                progressionSettings: {
+                  ...editedPlan.progressionSettings,
+                  increments: {
+                    ...editedPlan.progressionSettings?.increments,
+                    sets: parseFloat(e.target.value)
+                  }
+                }
+              })}
+              className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">
+              Reps Increment
+              <span className="text-gray-500 ml-1">(per week)</span>
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={editedPlan.progressionSettings?.increments?.reps || 0}
+              onChange={(e) => setEditedPlan({
+                ...editedPlan,
+                progressionSettings: {
+                  ...editedPlan.progressionSettings,
+                  increments: {
+                    ...editedPlan.progressionSettings?.increments,
+                    reps: parseFloat(e.target.value)
+                  }
+                }
+              })}
+              className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">
+              Weight Increment
+              <span className="text-gray-500 ml-1">(kg/lb per week)</span>
+            </label>
+            <input
+              type="number"
+              step="0.5"
+              value={editedPlan.progressionSettings?.increments?.weight || 0}
+              onChange={(e) => setEditedPlan({
+                ...editedPlan,
+                progressionSettings: {
+                  ...editedPlan.progressionSettings,
+                  increments: {
+                    ...editedPlan.progressionSettings?.increments,
+                    weight: parseFloat(e.target.value)
+                  }
+                }
+              })}
+              className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">
+              Duration Increment
+              <span className="text-gray-500 ml-1">(seconds per week)</span>
+            </label>
+            <input
+              type="number"
+              step="1"
+              value={editedPlan.progressionSettings?.increments?.duration || 0}
+              onChange={(e) => setEditedPlan({
+                ...editedPlan,
+                progressionSettings: {
+                  ...editedPlan.progressionSettings,
+                  increments: {
+                    ...editedPlan.progressionSettings?.increments,
+                    duration: parseFloat(e.target.value)
+                  }
+                }
+              })}
+              className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 p-3 bg-gray-900 rounded border border-gray-700">
+          <div className="text-xs text-gray-400">
+            <div className="font-semibold mb-1">Examples:</div>
+            <ul className="list-disc list-inside space-y-1 text-gray-500">
+              <li>Sets: 0.5 = +1 set every 2 weeks</li>
+              <li>Reps: 1 = +1 rep per week</li>
+              <li>Weight: 2.5 = +2.5kg per week</li>
+              <li>Duration: 10 = +10 seconds per week</li>
+            </ul>
+          </div>
+        </div>
       </div>
 
       {/* Week Selector */}
@@ -1869,6 +2299,7 @@ const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
                   >
                     <option value="repsSetsWeight">Reps/Sets/Weight</option>
                     <option value="timer">Timer</option>
+                    <option value="hangboard">Hangboard</option>
                   </select>
                 </div>
 
