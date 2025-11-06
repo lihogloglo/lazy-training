@@ -26,7 +26,6 @@ import {
   Dumbbell,
   CheckCircle,
   ArrowRight,
-  ArrowLeft,
   History,
   Play,
   Pause,
@@ -46,10 +45,7 @@ import {
   Save,
   Trash2,
   Plus,
-  Download,
-  Upload,
   Sparkles,
-  Sliders,
   TrendingUp,
   User,
   Users,
@@ -1049,7 +1045,7 @@ const TimerComponent = ({ exercise, onComplete }) => {
   );
 };
 
-const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber = 1 }) => {
+const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber = 1, plan }) => {
   // Safety check: ensure details exists
   if (!exercise.details) {
     return (
@@ -1515,6 +1511,7 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, day
             exercise={currentExercise}
             showSuggested={true}
             weekNumber={dayData.weekNumber || 1}
+            plan={plan}
           />
         )}
       </div>
@@ -2009,7 +2006,6 @@ const PlanView = ({ plan, showCreatePlan, showEditPlan }) => {
   const handleEnableNotifications = () => {
     // In a real native app, this would trigger the permission prompt
     // e.g., using Capacitor's PushNotifications.requestPermissions()
-    console.log("Requesting notification permissions...");
     // For web, you might use: Notification.requestPermission()
     // Using a custom modal instead of alert
     alert("In a native app, this would ask for notification permissions.");
@@ -2981,8 +2977,6 @@ export default function App() {
             });
 
             await batch.commit();
-
-            console.log('Successfully migrated legacy plan to profile:', profileId);
           }
         }
       } catch (error) {
