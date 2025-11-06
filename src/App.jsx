@@ -1978,13 +1978,12 @@ const PlanView = ({ plan, showCreatePlan, showEditPlan }) => {
  */
 const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
   const [editedPlan, setEditedPlan] = useState(JSON.parse(JSON.stringify(plan))); // Deep copy
-  const [selectedWeek, setSelectedWeek] = useState(0);
   const [selectedDay, setSelectedDay] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [expandedExercise, setExpandedExercise] = useState(null);
 
-  const currentWeek = editedPlan.weeks[selectedWeek];
-  const currentDay = currentWeek?.days[selectedDay];
+  // Use baseWeek structure (not weeks array)
+  const currentDay = editedPlan.baseWeek?.days[selectedDay];
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -2005,13 +2004,18 @@ const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
 
   const updateExercise = (exerciseIndex, field, value) => {
     const newPlan = { ...editedPlan };
-    const exercise = newPlan.weeks[selectedWeek].days[selectedDay].exercises[exerciseIndex];
+    const exercise = newPlan.baseWeek.days[selectedDay].exercises[exerciseIndex];
 
     if (field === 'name') {
       exercise.name = value;
-    } else if (field.startsWith('details.')) {
+    } else if (field.startsWith('details.') || field.startsWith('baselineDetails.')) {
       const detailField = field.split('.')[1];
-      exercise.details[detailField] = value;
+      // Support both details and baselineDetails for compatibility
+      const detailsKey = exercise.baselineDetails ? 'baselineDetails' : 'details';
+      if (!exercise[detailsKey]) {
+        exercise[detailsKey] = {};
+      }
+      exercise[detailsKey][detailField] = value;
     }
 
     setEditedPlan(newPlan);
@@ -2019,40 +2023,42 @@ const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
 
   const addExercise = () => {
     const newPlan = { ...editedPlan };
-    newPlan.weeks[selectedWeek].days[selectedDay].exercises.push({
+    newPlan.baseWeek.days[selectedDay].exercises.push({
       name: "New Exercise",
       type: "repsSetsWeight",
-      details: { sets: 3, reps: "10", weight: "Bodyweight", rest: 60 }
+      baselineDetails: { sets: 3, reps: "10", weight: "Bodyweight", rest: 60 }
     });
     setEditedPlan(newPlan);
   };
 
   const deleteExercise = (exerciseIndex) => {
     const newPlan = { ...editedPlan };
-    newPlan.weeks[selectedWeek].days[selectedDay].exercises.splice(exerciseIndex, 1);
+    newPlan.baseWeek.days[selectedDay].exercises.splice(exerciseIndex, 1);
     setEditedPlan(newPlan);
     setExpandedExercise(null);
   };
 
   const changeDayFocus = (value) => {
     const newPlan = { ...editedPlan };
-    newPlan.weeks[selectedWeek].days[selectedDay].focus = value;
+    newPlan.baseWeek.days[selectedDay].focus = value;
     setEditedPlan(newPlan);
   };
 
   const changeExerciseType = (exerciseIndex, newType) => {
     const newPlan = { ...editedPlan };
-    const exercise = newPlan.weeks[selectedWeek].days[selectedDay].exercises[exerciseIndex];
+    const exercise = newPlan.baseWeek.days[selectedDay].exercises[exerciseIndex];
     exercise.type = newType;
 
-    // Set default details based on type
+    // Set default baselineDetails based on type
     if (newType === 'timer') {
-      exercise.details = { sets: 1, duration: 600, rest: 0, description: "Exercise description" };
+      exercise.baselineDetails = { sets: 1, duration: 600, rest: 0, description: "Exercise description" };
     } else if (newType === 'hangboard') {
-      exercise.details = { sets: 5, duration: 10, rest: 30, description: "Hangboard exercise" };
+      exercise.baselineDetails = { sets: 5, duration: 10, rest: 30, description: "Hangboard exercise" };
     } else {
-      exercise.details = { sets: 3, reps: "10", weight: "Bodyweight", rest: 60 };
+      exercise.baselineDetails = { sets: 3, reps: "10", weight: "Bodyweight", rest: 60 };
     }
+    // Remove old details field if it exists
+    delete exercise.details;
 
     setEditedPlan(newPlan);
   };
@@ -2203,29 +2209,18 @@ const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
         </div>
       </div>
 
-      {/* Week Selector */}
-      <div className="mb-4">
-        <label className="text-sm text-gray-400 mb-2 block">Week</label>
-        <div className="flex gap-2 overflow-x-auto pb-2">
-          {editedPlan.weeks.map((week, idx) => (
-            <button
-              key={idx}
-              onClick={() => { setSelectedWeek(idx); setSelectedDay(0); }}
-              className={`px-4 py-2 rounded-lg font-semibold whitespace-nowrap ${
-                selectedWeek === idx ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300'
-              }`}
-            >
-              Week {week.weekNumber}
-            </button>
-          ))}
-        </div>
+      {/* Info Box about Base Week */}
+      <div className="bg-blue-900/30 border border-blue-500/50 rounded-lg p-3 mb-4">
+        <p className="text-sm text-blue-200">
+          <strong>Note:</strong> You're editing the base week template. This week repeats throughout your plan with progressive overload applied automatically based on your progression settings above.
+        </p>
       </div>
 
       {/* Day Selector */}
       <div className="mb-4">
         <label className="text-sm text-gray-400 mb-2 block">Day</label>
         <div className="flex gap-2 overflow-x-auto pb-2">
-          {currentWeek?.days.map((day, idx) => (
+          {editedPlan.baseWeek?.days.map((day, idx) => (
             <button
               key={idx}
               onClick={() => setSelectedDay(idx)}
@@ -2303,91 +2298,95 @@ const EditPlanView = ({ db, userId, appId, plan, showPlanView }) => {
                   </select>
                 </div>
 
-                {exercise.type === 'repsSetsWeight' ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs text-gray-400 mb-1 block">Sets</label>
-                        <input
-                          type="number"
-                          value={exercise.details.sets}
-                          onChange={(e) => updateExercise(idx, 'details.sets', parseInt(e.target.value))}
-                          className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-                        />
+                {(() => {
+                  // Support both details and baselineDetails for compatibility
+                  const exDetails = exercise.baselineDetails || exercise.details || {};
+                  return exercise.type === 'repsSetsWeight' ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">Sets</label>
+                          <input
+                            type="number"
+                            value={exDetails.sets || 0}
+                            onChange={(e) => updateExercise(idx, 'details.sets', parseInt(e.target.value))}
+                            className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">Reps</label>
+                          <input
+                            type="text"
+                            value={exDetails.reps || ''}
+                            onChange={(e) => updateExercise(idx, 'details.reps', e.target.value)}
+                            className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                          />
+                        </div>
                       </div>
                       <div>
-                        <label className="text-xs text-gray-400 mb-1 block">Reps</label>
+                        <label className="text-xs text-gray-400 mb-1 block">Weight</label>
                         <input
                           type="text"
-                          value={exercise.details.reps}
-                          onChange={(e) => updateExercise(idx, 'details.reps', e.target.value)}
+                          value={exDetails.weight || ''}
+                          onChange={(e) => updateExercise(idx, 'details.weight', e.target.value)}
                           className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 mb-1 block">Weight</label>
-                      <input
-                        type="text"
-                        value={exercise.details.weight}
-                        onChange={(e) => updateExercise(idx, 'details.weight', e.target.value)}
-                        className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-                        placeholder="e.g., 80kg, Bodyweight, 70% 1RM"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 mb-1 block">Rest (seconds)</label>
-                      <input
-                        type="number"
-                        value={exercise.details.rest}
-                        onChange={(e) => updateExercise(idx, 'details.rest', parseInt(e.target.value))}
-                        className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs text-gray-400 mb-1 block">Sets</label>
-                        <input
-                          type="number"
-                          value={exercise.details.sets}
-                          onChange={(e) => updateExercise(idx, 'details.sets', parseInt(e.target.value))}
-                          className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                          placeholder="e.g., 80kg, Bodyweight, 70% 1RM"
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-gray-400 mb-1 block">Duration (sec)</label>
+                        <label className="text-xs text-gray-400 mb-1 block">Rest (seconds)</label>
                         <input
                           type="number"
-                          value={exercise.details.duration}
-                          onChange={(e) => updateExercise(idx, 'details.duration', parseInt(e.target.value))}
+                          value={exDetails.rest || 0}
+                          onChange={(e) => updateExercise(idx, 'details.rest', parseInt(e.target.value))}
                           className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
                         />
                       </div>
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 mb-1 block">Rest (seconds)</label>
-                      <input
-                        type="number"
-                        value={exercise.details.rest}
-                        onChange={(e) => updateExercise(idx, 'details.rest', parseInt(e.target.value))}
-                        className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 mb-1 block">Description</label>
-                      <textarea
-                        value={exercise.details.description || ''}
-                        onChange={(e) => updateExercise(idx, 'details.description', e.target.value)}
-                        className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-                        rows="2"
-                        placeholder="Exercise description or instructions"
-                      />
-                    </div>
-                  </>
-                )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">Sets</label>
+                          <input
+                            type="number"
+                            value={exDetails.sets || 0}
+                            onChange={(e) => updateExercise(idx, 'details.sets', parseInt(e.target.value))}
+                            className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">Duration (sec)</label>
+                          <input
+                            type="number"
+                            value={exDetails.duration || 0}
+                            onChange={(e) => updateExercise(idx, 'details.duration', parseInt(e.target.value))}
+                            className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Rest (seconds)</label>
+                        <input
+                          type="number"
+                          value={exDetails.rest || 0}
+                          onChange={(e) => updateExercise(idx, 'details.rest', parseInt(e.target.value))}
+                          className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Description</label>
+                        <textarea
+                          value={exDetails.description || ''}
+                          onChange={(e) => updateExercise(idx, 'details.description', e.target.value)}
+                          className="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
+                          rows="2"
+                          placeholder="Exercise description or instructions"
+                        />
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
