@@ -1423,13 +1423,48 @@ const HangboardComponent = ({ exercise, onComplete, weekNumber = 1, plan }) => {
 const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, dayData, showDashboard }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isRestingBetweenExercises, setIsRestingBetweenExercises] = useState(false);
+  const [restTimeLeft, setRestTimeLeft] = useState(0);
+  const restTimerRef = useRef(null);
+
+  const REST_BETWEEN_EXERCISES = 60; // 60 seconds rest between exercises
 
   const currentExercise = dayData.exercises[currentIndex];
 
   const handleNext = () => {
     if (currentIndex < dayData.exercises.length - 1) {
-      setCurrentIndex(currentIndex + 1);
+      // Start rest period before next exercise
+      setIsRestingBetweenExercises(true);
+      setRestTimeLeft(REST_BETWEEN_EXERCISES);
     }
+  };
+
+  // Rest timer between exercises
+  useEffect(() => {
+    if (isRestingBetweenExercises && restTimeLeft > 0) {
+      restTimerRef.current = setInterval(() => {
+        setRestTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(restTimerRef.current);
+            setIsRestingBetweenExercises(false);
+            setCurrentIndex(currentIndex + 1);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (restTimerRef.current) clearInterval(restTimerRef.current);
+    };
+  }, [isRestingBetweenExercises, restTimeLeft, currentIndex]);
+
+  const skipRestBetweenExercises = () => {
+    if (restTimerRef.current) clearInterval(restTimerRef.current);
+    setIsRestingBetweenExercises(false);
+    setRestTimeLeft(0);
+    setCurrentIndex(currentIndex + 1);
   };
 
   const handleFinish = async () => {
@@ -1477,6 +1512,37 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, day
     }
   };
 
+  // Show rest screen between exercises
+  if (isRestingBetweenExercises) {
+    const nextExercise = dayData.exercises[currentIndex + 1];
+    return (
+      <div className="p-4 pt-12 bg-gray-900 text-white min-h-full flex flex-col items-center justify-center">
+        <button onClick={showDashboard} className="absolute top-4 left-4 text-gray-400">
+          <X size={24} />
+        </button>
+
+        <div className="text-center mb-8">
+          <div className="text-sm uppercase text-gray-400 mb-2">Get Ready</div>
+          <h2 className="text-3xl font-bold mb-2">Next Exercise</h2>
+          <p className="text-xl text-indigo-400">{nextExercise.name}</p>
+        </div>
+
+        <div className="my-8 rounded-full w-64 h-64 flex flex-col items-center justify-center border-8 border-blue-500 bg-blue-500 bg-opacity-10">
+          <div className="text-sm uppercase tracking-widest text-blue-400 mb-2">REST</div>
+          <div className="text-7xl font-bold text-blue-400">{restTimeLeft}</div>
+          <div className="text-sm text-gray-400 mt-2">seconds</div>
+        </div>
+
+        <button
+          onClick={skipRestBetweenExercises}
+          className="px-8 py-4 bg-indigo-600 text-white rounded-lg text-lg font-semibold"
+        >
+          Skip Rest
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 pt-12 bg-gray-900 text-white min-h-full flex flex-col">
       <button onClick={showDashboard} className="absolute top-4 left-4 text-gray-400">
@@ -1490,12 +1556,14 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, day
       <div className="flex-grow flex items-center justify-center">
         {currentExercise.type === 'timer' ? (
           <TimerComponent
+            key={`timer-${currentIndex}`}
             exercise={currentExercise}
             onComplete={handleDone}
             plan={plan}
           />
         ) : currentExercise.type === 'hangboard' ? (
           <HangboardComponent
+            key={`hangboard-${currentIndex}`}
             exercise={currentExercise}
             onComplete={handleDone}
             weekNumber={dayData.weekNumber || 1}
@@ -1503,6 +1571,7 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, day
           />
         ) : currentExercise.type === 'repsSetsWeight' ? (
           <SetTrackingComponent
+            key={`sets-${currentIndex}`}
             exercise={currentExercise}
             onComplete={handleDone}
             weekNumber={dayData.weekNumber || 1}
@@ -1510,6 +1579,7 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, day
           />
         ) : (
           <RepsSetsWeightComponent
+            key={`reps-${currentIndex}`}
             exercise={currentExercise}
             showSuggested={true}
             weekNumber={dayData.weekNumber || 1}
