@@ -1122,7 +1122,7 @@ const RepsSetsWeightComponent = ({ exercise, showSuggested = false, weekNumber =
 };
 
 // Component for active set tracking during workout
-const SetTrackingComponent = ({ exercise, onComplete, weekNumber = 1 }) => {
+const SetTrackingComponent = ({ exercise, onComplete, weekNumber = 1, plan }) => {
   if (!exercise.details) {
     return (
       <div className="p-6 bg-gray-800 rounded-lg text-white w-full">
@@ -1508,6 +1508,7 @@ const ActiveWorkoutView = ({ db, auth, userId, appId, plan, activeProfileId, day
             exercise={currentExercise}
             onComplete={handleDone}
             weekNumber={dayData.weekNumber || 1}
+            plan={plan}
           />
         ) : (
           <RepsSetsWeightComponent
